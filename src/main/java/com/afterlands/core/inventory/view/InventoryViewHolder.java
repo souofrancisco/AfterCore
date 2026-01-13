@@ -36,9 +36,13 @@ import java.util.concurrent.ConcurrentHashMap;
 /**
  * Holder de um inventário aberto.
  *
- * <p>Gerencia o Bukkit Inventory, estado, renderização de itens e eventos.</p>
+ * <p>
+ * Gerencia o Bukkit Inventory, estado, renderização de itens e eventos.
+ * </p>
  *
- * <p><b>Thread:</b> Main thread para operações de inventário.</p>
+ * <p>
+ * <b>Thread:</b> Main thread para operações de inventário.
+ * </p>
  */
 public class InventoryViewHolder implements Listener {
 
@@ -93,8 +97,7 @@ public class InventoryViewHolder implements Listener {
             @NotNull InventoryActionHandler actionHandler,
             @NotNull DragAndDropHandler dragHandler,
             @NotNull InventoryAnimator animator,
-            @NotNull TitleUpdateSupport titleSupport
-    ) {
+            @NotNull TitleUpdateSupport titleSupport) {
         this.plugin = plugin;
         this.player = player;
         this.config = config;
@@ -144,10 +147,16 @@ public class InventoryViewHolder implements Listener {
     /**
      * Renderiza todos os itens no inventário.
      *
-     * <p>Usa ItemCompiler para compilação otimizada com cache.</p>
-     * <p>Suporta paginação e tabs.</p>
+     * <p>
+     * Usa ItemCompiler para compilação otimizada com cache.
+     * </p>
+     * <p>
+     * Suporta paginação e tabs.
+     * </p>
      *
-     * <p><b>Thread:</b> MAIN THREAD</p>
+     * <p>
+     * <b>Thread:</b> MAIN THREAD
+     * </p>
      */
     private void renderItems() {
         // Clear inventory and slot map
@@ -156,23 +165,107 @@ public class InventoryViewHolder implements Listener {
 
         Map<Integer, GuiItem> itemsToRender = new HashMap<>();
 
+        // DEBUG: Log config items count
+        boolean debug = plugin.getConfig().getBoolean("debug", false);
+        if (debug) {
+            plugin.getLogger().info("[ViewHolder] DEBUG: renderItems() - config.items().size()=" + config.items().size()
+                    + ", inventoryId=" + config.id());
+        }
+
+        // Load contentItems from context if available (for pagination)
+        @SuppressWarnings("unchecked")
+        List<GuiItem> contextContentItems = context.getData("contentItems", List.class).orElse(null);
+        if (contextContentItems != null && !contextContentItems.isEmpty()) {
+            this.contentItems = new ArrayList<>(contextContentItems);
+            if (debug) {
+                plugin.getLogger()
+                        .info("[ViewHolder] DEBUG: Loaded " + contentItems.size() + " content items from context");
+            }
+        }
+
         // 1. Static items from config (borders, decorations, etc.)
+        // Track filler items with duplicate: all for later processing
+        GuiItem fillerItem = null;
+
         for (GuiItem guiItem : config.items()) {
-            itemsToRender.put(guiItem.getSlot(), guiItem);
-            // Handle duplicate slots
-            for (int dupSlot : guiItem.getDuplicateSlots()) {
-                itemsToRender.put(dupSlot, guiItem);
+            // Special handling: conditionally hide navigation items if not needed
+            // This allows defining them in YAML but having them disappear when invalid
+            if (config.pagination() != null) {
+                String type = guiItem.getType();
+                if (type != null) {
+                    if ("prev-page".equalsIgnoreCase(type) || "previous-page".equalsIgnoreCase(type)) {
+                        if (currentPage <= 1) {
+                            continue; // Skip rendering previous button on first page
+                        }
+                    } else if ("next-page".equalsIgnoreCase(type)) {
+                        // Calculate total pages just-in-time or reuse if cached
+                        // We use contentItems.size() which is already loaded
+                        int total = paginationEngine.getTotalPages(config, contentItems.size());
+                        if (currentPage >= total) {
+                            continue; // Skip rendering next button on last page
+                        }
+                    }
+                }
+            }
+
+            // Check for duplicate: all marker (-1 in duplicateSlots)
+            List<Integer> dupSlots = guiItem.getDuplicateSlots();
+            if (!dupSlots.isEmpty() && dupSlots.get(0) == -1) {
+                // This is a filler item with duplicate: all
+                fillerItem = guiItem;
+                itemsToRender.put(guiItem.getSlot(), guiItem);
+            } else {
+                itemsToRender.put(guiItem.getSlot(), guiItem);
+                // Handle explicit duplicate slots
+                for (int dupSlot : dupSlots) {
+                    itemsToRender.put(dupSlot, guiItem);
+                }
+            }
+
+            // DEBUG: Log each item
+            if (debug) {
+                plugin.getLogger().info("[ViewHolder] DEBUG: Item at slot " + guiItem.getSlot()
+                        + " - type=" + guiItem.getType()
+                        + ", material=" + guiItem.getMaterial()
+                        + ", actions=" + guiItem.getActions().size()
+                        + ", hasClickHandlers=" + guiItem.hasClickHandlers()
+                        + ", duplicate=" + (dupSlots.isEmpty() ? "none" : (dupSlots.get(0) == -1 ? "all" : dupSlots)));
+            }
+        }
+
+        // 2. Programmatic items from context (injected by plugins) - OVERRIDE YAML
+        // items
+        @SuppressWarnings("unchecked")
+        List<GuiItem> programmaticItems = context.getData("programmaticItems", List.class)
+                .orElse(Collections.emptyList());
+        if (!programmaticItems.isEmpty()) {
+            for (GuiItem guiItem : programmaticItems) {
+                itemsToRender.put(guiItem.getSlot(), guiItem);
+                if (debug) {
+                    plugin.getLogger()
+                            .info("[ViewHolder] DEBUG: Programmatic item OVERRIDE at slot " + guiItem.getSlot()
+                                    + " - type=" + guiItem.getType()
+                                    + ", hasClickHandlers=" + guiItem.hasClickHandlers());
+                }
             }
         }
 
         // 2. Tab system integration
-        if (!config.tabs().isEmpty()) {
+        if (!config.tabs().isEmpty())
+
+        {
+
             Map<Integer, GuiItem> tabItems = tabManager.renderComplete(tabState, config);
-            itemsToRender.putAll(tabItems); // Tab items can override static items
+            itemsToRender.putAll(tabItems); // Tab
+                                            // items
+                                            // can
+                                            // override
+                                            // static
+                                            // items
         }
 
         // 3. Pagination integration
-        if (config.pagination() != null && !contentItems.isEmpty()) {
+        if (config.pagination() != null) {
             PaginatedView page = paginationEngine.createPage(config, currentPage, contentItems);
 
             // Add page items
@@ -181,9 +274,36 @@ public class InventoryViewHolder implements Listener {
             // Add navigation controls
             itemsToRender.putAll(page.navigationItems());
 
+            // CRITICAL: Reserve all content slots (even empty ones) so duplicate:all
+            // doesn't fill them
+            // This ensures pagination content slots have priority over filler items
+            for (Integer contentSlot : page.contentSlots()) {
+                if (!itemsToRender.containsKey(contentSlot)) {
+                    // Mark slot as occupied (with AIR) to prevent duplicate:all from filling it
+                    itemsToRender.put(contentSlot, null); // null = AIR in Bukkit
+                }
+            }
+
             // Update context with pagination placeholders
             context.withPlaceholder("page", String.valueOf(page.currentPage()));
             context.withPlaceholder("total_pages", String.valueOf(page.totalPages()));
+        }
+
+        // 4. Fill empty slots with filler item if duplicate: all was used (AFTER
+        // pagination)
+        if (fillerItem != null) {
+            int inventorySize = config.getSizeInSlots();
+            for (int slot = 0; slot < inventorySize; slot++) {
+                if (!itemsToRender.containsKey(slot)) {
+                    itemsToRender.put(slot, fillerItem);
+                }
+            }
+            if (debug) {
+                plugin.getLogger().info("[ViewHolder] DEBUG: Applied duplicate:all filler to empty slots, total items="
+                        + itemsToRender.size());
+            }
+        } else if (debug) {
+            plugin.getLogger().info("[ViewHolder] DEBUG: No duplicate:all filler item found.");
         }
 
         // Store slot -> GuiItem mapping for event handling
@@ -195,6 +315,11 @@ public class InventoryViewHolder implements Listener {
         for (Map.Entry<Integer, GuiItem> entry : itemsToRender.entrySet()) {
             int slot = entry.getKey();
             GuiItem guiItem = entry.getValue();
+
+            // Skip null items (reserved slots for pagination, will remain as AIR)
+            if (guiItem == null) {
+                continue;
+            }
 
             CompletableFuture<Void> future = itemCompiler.compile(guiItem, player, context)
                     .thenAccept(item -> {
@@ -264,8 +389,10 @@ public class InventoryViewHolder implements Listener {
     /**
      * Inicia animações ao abrir inventário.
      *
-     * <p>Itera sobre todos os items configurados e inicia animações para aqueles
-     * que possuem AnimationConfig.</p>
+     * <p>
+     * Itera sobre todos os items configurados e inicia animações para aqueles
+     * que possuem AnimationConfig.
+     * </p>
      */
     private void startAnimations() {
         for (GuiItem item : config.items()) {
@@ -280,7 +407,9 @@ public class InventoryViewHolder implements Listener {
     /**
      * Para animações ao fechar inventário.
      *
-     * <p>Remove todas as animações ativas deste inventário.</p>
+     * <p>
+     * Remove todas as animações ativas deste inventário.
+     * </p>
      */
     private void stopAnimations() {
         animator.stopAllAnimations(config.id(), player.getUniqueId());
@@ -291,9 +420,13 @@ public class InventoryViewHolder implements Listener {
     /**
      * Atualiza o título do inventário dinamicamente via packets.
      *
-     * <p>Se ProtocolLib disponível, usa packet. Caso contrário, reabre inventário.</p>
+     * <p>
+     * Se ProtocolLib disponível, usa packet. Caso contrário, reabre inventário.
+     * </p>
      *
-     * <p><b>Thread:</b> Main thread only.</p>
+     * <p>
+     * <b>Thread:</b> Main thread only.
+     * </p>
      *
      * @param newTitle Novo título (suporta placeholders e color codes)
      */
@@ -325,9 +458,13 @@ public class InventoryViewHolder implements Listener {
     /**
      * Fallback: reabre inventário com novo título.
      *
-     * <p>Usado quando ProtocolLib não está disponível.</p>
+     * <p>
+     * Usado quando ProtocolLib não está disponível.
+     * </p>
      *
-     * <p><b>Thread:</b> Main thread only.</p>
+     * <p>
+     * <b>Thread:</b> Main thread only.
+     * </p>
      */
     private void reopenWithNewTitle(@NotNull String newTitle) {
         // Para animações antes de fechar
@@ -354,9 +491,12 @@ public class InventoryViewHolder implements Listener {
     }
 
     /**
-     * Inicia task para atualizar título periodicamente (para placeholders dinâmicos).
+     * Inicia task para atualizar título periodicamente (para placeholders
+     * dinâmicos).
      *
-     * <p><b>Performance:</b> ~0.1ms/tick overhead per active inventory.</p>
+     * <p>
+     * <b>Performance:</b> ~0.1ms/tick overhead per active inventory.
+     * </p>
      *
      * @param interval Intervalo em ticks (20 ticks = 1 segundo)
      */
@@ -590,10 +730,21 @@ public class InventoryViewHolder implements Listener {
     /**
      * Handler de click em inventário.
      *
-     * <p>IMPORTANTE: Sempre roda na main thread (garantido pelo Bukkit).</p>
+     * <p>
+     * IMPORTANTE: Sempre roda na main thread (garantido pelo Bukkit).
+     * </p>
      */
     @EventHandler(priority = EventPriority.NORMAL)
     public void onInventoryClick(InventoryClickEvent event) {
+        // DEBUG: Log event receipt
+        boolean debug = plugin.getConfig().getBoolean("debug", false);
+        if (debug) {
+            plugin.getLogger().info("[ViewHolder] DEBUG: Click event received - inventoryMatch="
+                    + event.getInventory().equals(inventory)
+                    + ", ourInvTitle=" + (inventory != null ? inventory.getTitle() : "null")
+                    + ", eventInvTitle=" + event.getView().getTitle());
+        }
+
         // Check if it's our inventory
         if (!event.getInventory().equals(inventory)) {
             return;
@@ -621,6 +772,14 @@ public class InventoryViewHolder implements Listener {
         // Get GuiItem at slot
         GuiItem guiItem = slotToGuiItem.get(slot);
 
+        // DEBUG: Log slot lookup
+        if (debug) {
+            plugin.getLogger().info("[ViewHolder] DEBUG: Slot " + slot
+                    + " lookup - found=" + (guiItem != null)
+                    + ", slotMapSize=" + slotToGuiItem.size()
+                    + ", slotMapKeys=" + slotToGuiItem.keySet());
+        }
+
         // Cancel by default if item is configured (prevent item removal)
         if (guiItem != null) {
             event.setCancelled(true);
@@ -633,7 +792,9 @@ public class InventoryViewHolder implements Listener {
     /**
      * Handler de drag em inventário.
      *
-     * <p>IMPORTANTE: Sempre roda na main thread (garantido pelo Bukkit).</p>
+     * <p>
+     * IMPORTANTE: Sempre roda na main thread (garantido pelo Bukkit).
+     * </p>
      */
     @EventHandler(priority = EventPriority.NORMAL)
     public void onInventoryDrag(InventoryDragEvent event) {
@@ -653,7 +814,7 @@ public class InventoryViewHolder implements Listener {
 
         // Check if any dragged slot is in top inventory
         boolean affectsTopInventory = event.getRawSlots().stream()
-            .anyMatch(slot -> slot >= 0 && slot < inventory.getSize());
+                .anyMatch(slot -> slot >= 0 && slot < inventory.getSize());
 
         if (!affectsTopInventory) {
             return;
@@ -687,7 +848,9 @@ public class InventoryViewHolder implements Listener {
     /**
      * Handler de fechamento de inventário.
      *
-     * <p>IMPORTANTE: Sempre roda na main thread (garantido pelo Bukkit).</p>
+     * <p>
+     * IMPORTANTE: Sempre roda na main thread (garantido pelo Bukkit).
+     * </p>
      */
     @EventHandler(priority = EventPriority.MONITOR)
     public void onInventoryClose(InventoryCloseEvent event) {

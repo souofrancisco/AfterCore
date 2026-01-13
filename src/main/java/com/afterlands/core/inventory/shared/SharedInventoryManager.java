@@ -20,21 +20,28 @@ import java.util.logging.Logger;
 /**
  * Gerenciador de inventários compartilhados (multi-player).
  *
- * <p>Responsável por:</p>
+ * <p>
+ * Responsável por:
+ * </p>
  * <ul>
- *     <li>Criar e gerenciar sessões compartilhadas</li>
- *     <li>Adicionar/remover players de sessões</li>
- *     <li>Broadcast de updates para todos os players</li>
- *     <li>Sincronização com copy-on-write strategy</li>
+ * <li>Criar e gerenciar sessões compartilhadas</li>
+ * <li>Adicionar/remover players de sessões</li>
+ * <li>Broadcast de updates para todos os players</li>
+ * <li>Sincronização com copy-on-write strategy</li>
  * </ul>
  *
- * <p><b>Thread Safety:</b> Usa ReadWriteLock para read-heavy operations.
- * Copy-on-write para estado compartilhado minimiza locks.</p>
+ * <p>
+ * <b>Thread Safety:</b> Usa ReadWriteLock para read-heavy operations.
+ * Copy-on-write para estado compartilhado minimiza locks.
+ * </p>
  *
- * <p><b>Performance:</b> Debounce de 2 ticks para batch updates.</p>
+ * <p>
+ * <b>Performance:</b> Debounce de 2 ticks para batch updates.
+ * </p>
  */
 public class SharedInventoryManager {
 
+    private final org.bukkit.plugin.Plugin plugin;
     private final SchedulerService scheduler;
     private final Logger logger;
     private final boolean debug;
@@ -50,10 +57,11 @@ public class SharedInventoryManager {
     private BukkitTask debounceTask;
 
     public SharedInventoryManager(
+            @NotNull org.bukkit.plugin.Plugin plugin,
             @NotNull SchedulerService scheduler,
             @NotNull Logger logger,
-            boolean debug
-    ) {
+            boolean debug) {
+        this.plugin = plugin;
         this.scheduler = scheduler;
         this.logger = logger;
         this.debug = debug;
@@ -69,17 +77,16 @@ public class SharedInventoryManager {
     /**
      * Cria sessão compartilhada.
      *
-     * @param players Lista de players
+     * @param players     Lista de players
      * @param inventoryId ID do inventário
-     * @param context Contexto base
+     * @param context     Contexto base
      * @return Session ID único
      */
     @NotNull
     public String createSharedSession(
             @NotNull List<Player> players,
             @NotNull String inventoryId,
-            @NotNull InventoryContext context
-    ) {
+            @NotNull InventoryContext context) {
         if (players.isEmpty()) {
             throw new IllegalArgumentException("players list cannot be empty");
         }
@@ -94,8 +101,7 @@ public class SharedInventoryManager {
                 sharedContext.sessionId(),
                 inventoryId,
                 sharedContext,
-                new ConcurrentHashMap<>()
-        );
+                new ConcurrentHashMap<>());
 
         lock.writeLock().lock();
         try {
@@ -117,7 +123,7 @@ public class SharedInventoryManager {
      * Adiciona player a uma sessão existente.
      *
      * @param sessionId ID da sessão
-     * @param player Player a adicionar
+     * @param player    Player a adicionar
      * @return true se adicionado, false se sessão não existe
      */
     public boolean addPlayer(@NotNull String sessionId, @NotNull Player player) {
@@ -139,8 +145,7 @@ public class SharedInventoryManager {
                     session.sessionId(),
                     session.inventoryId(),
                     updatedContext,
-                    session.viewHolders()
-            );
+                    session.viewHolders());
 
             activeSessions.put(sessionId, session);
 
@@ -158,7 +163,7 @@ public class SharedInventoryManager {
      * Remove player de uma sessão.
      *
      * @param sessionId ID da sessão
-     * @param playerId UUID do player
+     * @param playerId  UUID do player
      * @return true se removido, false se sessão não existe
      */
     public boolean removePlayer(@NotNull String sessionId, @NotNull UUID playerId) {
@@ -180,8 +185,7 @@ public class SharedInventoryManager {
                     session.sessionId(),
                     session.inventoryId(),
                     updatedContext,
-                    updatedHolders
-            );
+                    updatedHolders);
 
             // Se não há mais players, fecha sessão
             if (updatedContext.getPlayerCount() == 0) {
@@ -241,11 +245,13 @@ public class SharedInventoryManager {
     /**
      * Broadcast update de item para todos os players da sessão.
      *
-     * <p>Usa debounce de 2 ticks para batch updates.</p>
+     * <p>
+     * Usa debounce de 2 ticks para batch updates.
+     * </p>
      *
      * @param sessionId ID da sessão
-     * @param slot Slot do item
-     * @param item Item atualizado
+     * @param slot      Slot do item
+     * @param item      Item atualizado
      */
     public void broadcastUpdate(@NotNull String sessionId, int slot, @Nullable ItemStack item) {
         lock.readLock().lock();
@@ -272,14 +278,13 @@ public class SharedInventoryManager {
      * Registra view holder em uma sessão.
      *
      * @param sessionId ID da sessão
-     * @param playerId UUID do player
-     * @param holder View holder
+     * @param playerId  UUID do player
+     * @param holder    View holder
      */
     public void registerViewHolder(
             @NotNull String sessionId,
             @NotNull UUID playerId,
-            @NotNull InventoryViewHolder holder
-    ) {
+            @NotNull InventoryViewHolder holder) {
         lock.writeLock().lock();
         try {
             SharedInventorySession session = activeSessions.get(sessionId);
@@ -336,10 +341,10 @@ public class SharedInventoryManager {
      */
     private void startDebounceTask() {
         debounceTask = Bukkit.getScheduler().runTaskTimer(
-                null, // TODO: Plugin instance needed
+                plugin,
                 this::processPendingUpdates,
                 2L, // Initial delay: 2 ticks
-                2L  // Interval: 2 ticks
+                2L // Interval: 2 ticks
         );
 
         if (debug) {
@@ -453,8 +458,7 @@ public class SharedInventoryManager {
             @NotNull String sessionId,
             @NotNull String inventoryId,
             @NotNull SharedInventoryContext context,
-            @NotNull Map<UUID, InventoryViewHolder> viewHolders
-    ) {
+            @NotNull Map<UUID, InventoryViewHolder> viewHolders) {
         public SharedInventorySession {
             if (sessionId == null || sessionId.isBlank()) {
                 throw new IllegalArgumentException("sessionId cannot be null or blank");

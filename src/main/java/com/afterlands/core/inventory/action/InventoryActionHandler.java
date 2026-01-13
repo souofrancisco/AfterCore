@@ -25,10 +25,12 @@ import java.util.logging.Logger;
 /**
  * Handler de actions para inventários do AfterCore.
  *
- * <p>Integra o ActionService existente com clicks de inventário,
+ * <p>
+ * Integra o ActionService existente com clicks de inventário,
  * adicionando actions específicas para navegação de inventários.
  *
- * <p>Thread safety: Todos os métodos são thread-safe.
+ * <p>
+ * Thread safety: Todos os métodos são thread-safe.
  * Click events sempre rodam na main thread (garantido pelo Bukkit).
  */
 public class InventoryActionHandler {
@@ -42,19 +44,22 @@ public class InventoryActionHandler {
     // Custom action handlers específicos de inventário
     private final Map<String, BiConsumer<Player, String>> customHandlers;
 
+    // Type-based click handlers (item type -> handler)
+    private final Map<String, ClickHandler> typeHandlers;
+
     public InventoryActionHandler(
-        ActionService actionService,
-        PlaceholderResolver placeholderResolver,
-        SchedulerService scheduler,
-        Logger logger,
-        boolean debug
-    ) {
+            ActionService actionService,
+            PlaceholderResolver placeholderResolver,
+            SchedulerService scheduler,
+            Logger logger,
+            boolean debug) {
         this.actionService = actionService;
         this.placeholderResolver = placeholderResolver;
         this.scheduler = scheduler;
         this.logger = logger;
         this.debug = debug;
         this.customHandlers = new ConcurrentHashMap<>();
+        this.typeHandlers = new ConcurrentHashMap<>();
 
         registerDefaultHandlers();
     }
@@ -104,14 +109,16 @@ public class InventoryActionHandler {
     /**
      * Processa click em item de inventário com suporte a tipos de click.
      *
-     * <p>IMPORTANTE: Este método sempre roda na main thread (garantido pelo Bukkit).
+     * <p>
+     * IMPORTANTE: Este método sempre roda na main thread (garantido pelo Bukkit).
      *
-     * @param event InventoryClickEvent do Bukkit
-     * @param item GuiItem configurado
+     * @param event   InventoryClickEvent do Bukkit
+     * @param item    GuiItem configurado
      * @param context InventoryContext do player
-     * @param holder InventoryViewHolder do inventário
+     * @param holder  InventoryViewHolder do inventário
      */
-    public void handleClick(InventoryClickEvent event, GuiItem item, InventoryContext context, InventoryViewHolder holder) {
+    public void handleClick(InventoryClickEvent event, GuiItem item, InventoryContext context,
+            InventoryViewHolder holder) {
         if (!(event.getWhoClicked() instanceof Player player)) {
             return;
         }
@@ -119,10 +126,33 @@ public class InventoryActionHandler {
         ClickType clickType = event.getClick();
         ClickHandlers handlers = item.getClickHandlers();
 
+        // DEBUG: Log click handling
+        if (debug) {
+            logger.info("[InventoryAction] DEBUG: Click received - player=" + player.getName()
+                    + ", slot=" + event.getRawSlot()
+                    + ", clickType=" + clickType
+                    + ", itemType=" + item.getType()
+                    + ", hasHandlers=" + handlers.hasProgrammaticHandlers()
+                    + ", hasClickFor=" + handlers.hasHandlerFor(clickType));
+        }
+
         // Criar ClickContext
         ClickContext clickContext = ClickContext.from(event, holder, item, context);
 
-        // 1. Tentar handler programático primeiro
+        // 1. Tentar handler baseado em tipo de item (registrado via
+        // registerTypeHandler)
+        String itemType = item.getType();
+        if (itemType != null && typeHandlers.containsKey(itemType.toLowerCase())) {
+            try {
+                typeHandlers.get(itemType.toLowerCase()).handle(clickContext);
+                return;
+            } catch (Exception e) {
+                logger.log(Level.WARNING, "Type handler threw exception for type " + itemType, e);
+                return;
+            }
+        }
+
+        // 2. Tentar handler programático do item
         ClickHandler handler = handlers.getHandler(clickType);
         if (handler != null) {
             try {
@@ -142,40 +172,43 @@ public class InventoryActionHandler {
 
         if (debug) {
             logger.info("[InventoryAction] Handling " + clickType + " for player " + player.getName()
-                + " with " + actions.size() + " actions");
+                    + " with " + actions.size() + " actions");
         }
 
         executeActions(actions, player, context)
-            .exceptionally(ex -> {
-                logger.log(Level.WARNING, "Failed to execute actions for player " + player.getName(), ex);
-                return null;
-            });
+                .exceptionally(ex -> {
+                    logger.log(Level.WARNING, "Failed to execute actions for player " + player.getName(), ex);
+                    return null;
+                });
     }
 
     /**
      * Executa lista de actions configuradas.
      *
-     * <p>Actions do ActionService (play_sound, message, etc.) são executadas via ActionService.
-     * Actions customizadas de inventário (switch_tab, next_page, etc.) são executadas diretamente.
+     * <p>
+     * Actions do ActionService (play_sound, message, etc.) são executadas via
+     * ActionService.
+     * Actions customizadas de inventário (switch_tab, next_page, etc.) são
+     * executadas diretamente.
      *
      * @param actions Lista de strings de actions (formato AfterCore)
-     * @param player Player alvo
+     * @param player  Player alvo
      * @param context Contexto com placeholders
-     * @return CompletableFuture que completa quando todas as actions foram executadas
+     * @return CompletableFuture que completa quando todas as actions foram
+     *         executadas
      */
     public CompletableFuture<Void> executeActions(
-        List<String> actions,
-        Player player,
-        InventoryContext context
-    ) {
+            List<String> actions,
+            Player player,
+            InventoryContext context) {
         if (actions == null || actions.isEmpty()) {
             return CompletableFuture.completedFuture(null);
         }
 
         // Resolve placeholders em todas as actions
         List<String> resolvedActions = actions.stream()
-            .map(action -> placeholderResolver.resolve(action, player, context))
-            .toList();
+                .map(action -> placeholderResolver.resolve(action, player, context))
+                .toList();
 
         // Execute todas as actions em sequência
         CompletableFuture<Void> future = CompletableFuture.completedFuture(null);
@@ -191,18 +224,17 @@ public class InventoryActionHandler {
      * Executa uma única action.
      *
      * @param actionString String da action
-     * @param player Player alvo
-     * @param context Contexto
+     * @param player       Player alvo
+     * @param context      Contexto
      * @return CompletableFuture que completa quando a action foi executada
      */
     private CompletableFuture<Void> executeSingleAction(
-        String actionString,
-        Player player,
-        InventoryContext context
-    ) {
+            String actionString,
+            Player player,
+            InventoryContext context) {
         try {
             ParsedAction action = parseAction(actionString)
-                .orElseThrow(() -> new IllegalArgumentException("Failed to parse action: " + actionString));
+                    .orElseThrow(() -> new IllegalArgumentException("Failed to parse action: " + actionString));
 
             // Check if it's a custom inventory action
             BiConsumer<Player, String> customHandler = customHandlers.get(action.actionType());
@@ -258,10 +290,11 @@ public class InventoryActionHandler {
     /**
      * Registra action customizada para inventários.
      *
-     * <p>IMPORTANTE: O handler será executado na main thread.
+     * <p>
+     * IMPORTANTE: O handler será executado na main thread.
      *
      * @param actionName Nome da action (ex: "switch_tab", "next_page")
-     * @param handler Handler customizado que aceita (Player, arguments)
+     * @param handler    Handler customizado que aceita (Player, arguments)
      */
     public void registerCustomAction(String actionName, BiConsumer<Player, String> handler) {
         if (actionName == null || actionName.isBlank()) {
@@ -296,6 +329,44 @@ public class InventoryActionHandler {
      */
     public boolean isCustomAction(String actionType) {
         return customHandlers.containsKey(actionType.toLowerCase());
+    }
+
+    /**
+     * Registra handler para um tipo de item específico.
+     *
+     * <p>
+     * Quando um item com o tipo especificado for clicado, o handler será
+     * chamado automaticamente, independente das actions YAML configuradas.
+     *
+     * <p>
+     * IMPORTANTE: O handler será executado na main thread.
+     *
+     * @param itemType Nome do tipo de item (value do campo 'type' no YAML)
+     * @param handler  Handler a ser executado quando itens desse tipo são clicados
+     */
+    public void registerTypeHandler(String itemType, ClickHandler handler) {
+        if (itemType == null || itemType.isBlank()) {
+            throw new IllegalArgumentException("Item type cannot be null or empty");
+        }
+        if (handler == null) {
+            throw new IllegalArgumentException("Handler cannot be null");
+        }
+
+        typeHandlers.put(itemType.toLowerCase(), handler);
+
+        if (debug) {
+            logger.info("[InventoryAction] Registered type handler for: " + itemType);
+        }
+    }
+
+    /**
+     * Remove handler de tipo.
+     *
+     * @param itemType Tipo de item
+     * @return true se o handler foi removido
+     */
+    public boolean unregisterTypeHandler(String itemType) {
+        return typeHandlers.remove(itemType.toLowerCase()) != null;
     }
 
     /**

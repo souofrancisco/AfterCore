@@ -123,23 +123,29 @@ public final class HikariSqlService implements SqlService {
 
     private void applyMigrationsSync() throws Exception {
         if (migrations.isEmpty()) {
+            logger.info("[AfterCore] No database migrations registered");
             return;
         }
+
+        logger.info("[AfterCore] Applying " + migrations.size() + " database migration(s)...");
+        int success = 0;
+
         try (Connection conn = getConnection()) {
             for (Map.Entry<String, SqlMigration> entry : migrations.entrySet()) {
                 String id = entry.getKey();
                 SqlMigration migration = entry.getValue();
                 try {
                     migration.apply(conn);
-                    if (debug) {
-                        logger.info("[AfterCore] migration OK: " + id);
-                    }
+                    success++;
+                    logger.info("[AfterCore] ✓ Migration executed: " + id);
                 } catch (Exception e) {
-                    logger.log(Level.SEVERE, "[AfterCore] migration FAILED: " + id, e);
+                    logger.log(Level.SEVERE, "[AfterCore] ✗ Migration FAILED: " + id, e);
                     throw e;
                 }
             }
         }
+
+        logger.info("[AfterCore] Successfully applied " + success + "/" + migrations.size() + " migration(s)");
     }
 
     @Override

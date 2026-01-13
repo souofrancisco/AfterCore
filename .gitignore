@@ -1,6 +1,11 @@
 # User-specific stuff
+!README.md
+!.docs/
 .idea/
-
+.cursor/
+.vscode/
+.claude/
+*.md
 *.iml
 *.ipr
 *.iws
@@ -69,14 +74,6 @@ Icon
 Network Trash Folder
 Temporary Items
 .apdisk
-
-# Code
-.cursor/
-.vscode/
-.claude/
-*.md
-!README.md
-!.docs/
 
 # Windows thumbnail cache files
 Thumbs.db

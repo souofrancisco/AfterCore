@@ -21,7 +21,8 @@ public final class SimpleKvActionDialect implements ActionDialect {
     @Override
     public @Nullable ActionSpec parse(@NotNull String line) {
         String s = line.trim();
-        if (s.isEmpty()) return null;
+        if (s.isEmpty())
+            return null;
 
         Long timeTicks = null;
         Integer frameIndex = null;
@@ -29,10 +30,13 @@ public final class SimpleKvActionDialect implements ActionDialect {
         String foundType = null;
         String foundArgs = null;
 
+        // Split by comma (primary separator for key-value pairs)
+        // Format: "frame: 2, sound: LEVEL_UP;1;1" or "time: 100, message: Hello"
         String[] parts = s.split("\\s*,\\s*");
         for (String p : parts) {
             String[] kv = p.split("\\s*:\\s*", 2);
-            if (kv.length != 2) continue;
+            if (kv.length != 2)
+                continue;
             String k = kv[0].trim().toLowerCase();
             String v = kv[1].trim();
 
@@ -55,6 +59,15 @@ public final class SimpleKvActionDialect implements ActionDialect {
                     frameIndex = Integer.parseInt(v);
                 } catch (NumberFormatException ignored) {
                 }
+            } else if (k.equals("wait")) {
+                // Wait is a timing control - store as timeTicks for later processing
+                try {
+                    timeTicks = Long.parseLong(v);
+                } catch (NumberFormatException ignored) {
+                }
+                // Mark as a wait action type
+                foundType = "wait";
+                foundArgs = v;
             } else {
                 foundType = k;
                 foundArgs = v;
@@ -74,8 +87,6 @@ public final class SimpleKvActionDialect implements ActionDialect {
                 null,
                 ActionScope.VIEWER,
                 0,
-                line
-        );
+                line);
     }
 }
-

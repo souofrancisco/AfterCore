@@ -4,6 +4,9 @@ import com.afterlands.core.actions.ActionExecutor;
 import com.afterlands.core.actions.ActionService;
 import com.afterlands.core.actions.ActionSpec;
 import com.afterlands.core.actions.handlers.*;
+import com.afterlands.core.actions.handlers.inventory.ClosePanelHandler;
+import com.afterlands.core.actions.handlers.inventory.OpenPanelHandler;
+import com.afterlands.core.actions.handlers.inventory.RefreshPanelHandler;
 import com.afterlands.core.actions.impl.DefaultActionService;
 import com.afterlands.core.api.AfterCore;
 import com.afterlands.core.api.AfterCoreAPI;
@@ -106,10 +109,11 @@ public final class AfterCorePlugin extends JavaPlugin implements AfterCoreAPI {
         messages = new DefaultMessageService(this, config, debug);
 
         sql = new HikariSqlService(this, scheduler, debug);
-        sql.reloadFromConfig(getConfig().getConfigurationSection("database"));
 
-        // Registrar migrations
+        // Registrar migrations ANTES de reloadFromConfig (que executa as migrations)
         registerMigrations();
+
+        sql.reloadFromConfig(getConfig().getConfigurationSection("database"));
 
         conditions = new DefaultConditionService(this, scheduler, debug);
         actions = new DefaultActionService(conditions, debug);
@@ -316,6 +320,19 @@ public final class AfterCorePlugin extends JavaPlugin implements AfterCoreAPI {
         actions.registerHandler("global_message", new GlobalMessageHandler());
         actions.registerHandler("global_centered_message", new GlobalCenteredMessageHandler());
 
+        // Handlers de inventário/painel
+        OpenPanelHandler openPanelHandler = new OpenPanelHandler();
+        actions.registerHandler("open-panel", openPanelHandler);
+        actions.registerHandler("open_panel", openPanelHandler); // Alias
+        actions.registerHandler("open", openPanelHandler); // Alias curto
+
+        ClosePanelHandler closePanelHandler = new ClosePanelHandler();
+        actions.registerHandler("close-panel", closePanelHandler);
+        actions.registerHandler("close_panel", closePanelHandler); // Alias
+        actions.registerHandler("close", closePanelHandler); // Alias curto
+
+        actions.registerHandler("refresh", new RefreshPanelHandler());
+
         if (debug) {
             getLogger().info("Registered " + actions.getHandlers().size() + " default action handlers");
         }
@@ -373,16 +390,13 @@ public final class AfterCorePlugin extends JavaPlugin implements AfterCoreAPI {
      * Registra migrations do AfterCore.
      */
     private void registerMigrations() {
-        if (sql == null || !sql.isEnabled()) {
-            getLogger().info("Database disabled, skipping migrations");
-            return;
-        }
+        // Note: sql may not be enabled yet (called before reloadFromConfig)
+        // Migrations are registered here and executed during reloadFromConfig
 
         // Inventory states migration
         sql.registerMigration(
                 CreateInventoryStatesMigration.getMigrationId(),
-                new CreateInventoryStatesMigration()
-        );
+                new CreateInventoryStatesMigration());
 
         getLogger().info("Registered " + 1 + " database migration(s)");
     }

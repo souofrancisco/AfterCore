@@ -21,21 +21,28 @@ import java.util.stream.Collectors;
 /**
  * Compilador de GuiItem → ItemStack final.
  *
- * <p>Pipeline de compilação:
+ * <p>
+ * Pipeline de compilação:
  * <ol>
- *     <li>Verifica cache (se item é cacheável)</li>
- *     <li>Cria ItemStack base com material/data/amount</li>
- *     <li>Resolve placeholders (PlaceholderAPI + context) - MAIN THREAD</li>
- *     <li>Aplica ItemMeta (name, lore, enchantments, flags)</li>
- *     <li>Aplica NBT customizado via NBTItemBuilder</li>
- *     <li>Aplica skull texture (se aplicável)</li>
- *     <li>Cacheia resultado (se cacheável)</li>
+ * <li>Verifica cache (se item é cacheável)</li>
+ * <li>Cria ItemStack base com material/data/amount</li>
+ * <li>Resolve placeholders (PlaceholderAPI + context) - MAIN THREAD</li>
+ * <li>Aplica ItemMeta (name, lore, enchantments, flags)</li>
+ * <li>Aplica NBT customizado via NBTItemBuilder</li>
+ * <li>Aplica skull texture (se aplicável)</li>
+ * <li>Cacheia resultado (se cacheável)</li>
  * </ol>
  * </p>
  *
- * <p><b>Thread Safety:</b> Compilação DEVE rodar na main thread (PlaceholderAPI requirement).</p>
+ * <p>
+ * <b>Thread Safety:</b> Compilação DEVE rodar na main thread (PlaceholderAPI
+ * requirement).
+ * </p>
  *
- * <p><b>Performance:</b> Cache inteligente reduz compilações redundantes em 80-90%.</p>
+ * <p>
+ * <b>Performance:</b> Cache inteligente reduz compilações redundantes em
+ * 80-90%.
+ * </p>
  */
 public class ItemCompiler {
 
@@ -48,19 +55,18 @@ public class ItemCompiler {
     /**
      * Cria compiler com dependências.
      *
-     * @param scheduler Scheduler service
-     * @param cache Item cache
+     * @param scheduler           Scheduler service
+     * @param cache               Item cache
      * @param placeholderResolver Placeholder resolver
-     * @param logger Logger
-     * @param debug Habilita debug logging
+     * @param logger              Logger
+     * @param debug               Habilita debug logging
      */
     public ItemCompiler(
             @NotNull SchedulerService scheduler,
             @NotNull ItemCache cache,
             @NotNull PlaceholderResolver placeholderResolver,
             @NotNull Logger logger,
-            boolean debug
-    ) {
+            boolean debug) {
         this.scheduler = scheduler;
         this.cache = cache;
         this.placeholderResolver = placeholderResolver;
@@ -71,10 +77,12 @@ public class ItemCompiler {
     /**
      * Compila GuiItem em ItemStack final.
      *
-     * <p><b>Thread:</b> MAIN THREAD (PlaceholderAPI requirement).</p>
+     * <p>
+     * <b>Thread:</b> MAIN THREAD (PlaceholderAPI requirement).
+     * </p>
      *
-     * @param item GuiItem a compilar
-     * @param player Player alvo (para placeholders)
+     * @param item    GuiItem a compilar
+     * @param player  Player alvo (para placeholders)
      * @param context Contexto com dados adicionais
      * @return CompletableFuture com ItemStack compilado
      */
@@ -82,8 +90,7 @@ public class ItemCompiler {
     public CompletableFuture<ItemStack> compile(
             @NotNull GuiItem item,
             @Nullable Player player,
-            @NotNull InventoryContext context
-    ) {
+            @NotNull InventoryContext context) {
         // Determina se item é cacheável
         boolean isCacheable = isCacheable(item);
 
@@ -94,24 +101,24 @@ public class ItemCompiler {
             return cache.get(
                     cacheKey,
                     () -> compileInternal(item, player, context),
-                    scheduler::runSync
-            );
+                    scheduler::runSync);
         } else {
             // Item dinâmico: compila sempre
             return CompletableFuture.supplyAsync(
                     () -> compileInternal(item, player, context),
-                    scheduler::runSync
-            );
+                    scheduler::runSync);
         }
     }
 
     /**
      * Compila item internamente (sem cache).
      *
-     * <p><b>CRITICAL:</b> MUST run on main thread.</p>
+     * <p>
+     * <b>CRITICAL:</b> MUST run on main thread.
+     * </p>
      *
-     * @param item GuiItem
-     * @param player Player
+     * @param item    GuiItem
+     * @param player  Player
      * @param context Contexto
      * @return ItemStack compilado
      */
@@ -119,8 +126,7 @@ public class ItemCompiler {
     private ItemStack compileInternal(
             @NotNull GuiItem item,
             @Nullable Player player,
-            @NotNull InventoryContext context
-    ) {
+            @NotNull InventoryContext context) {
         if (debug) {
             logger.fine("Compiling item: " + item.getType() + " (slot " + item.getSlot() + ")");
         }
@@ -129,8 +135,7 @@ public class ItemCompiler {
         ItemStack itemStack = new ItemStack(
                 item.getMaterial(),
                 item.getAmount(),
-                item.getData()
-        );
+                item.getData());
 
         ItemMeta meta = itemStack.getItemMeta();
         if (meta == null) {
@@ -172,7 +177,7 @@ public class ItemCompiler {
         }
 
         // 7. Apply skull texture
-        if (item.getMaterial() == Material.SKULL_ITEM && item.getHeadValue() != null) {
+        if (item.getMaterial() == Material.SKULL_ITEM && item.getData() == 3) {
             NBTItemBuilder nbtBuilder = new NBTItemBuilder(itemStack);
             String textureValue = resolveSkullTexture(item, player, context);
             nbtBuilder.setSkullTexture(textureValue, player);
@@ -185,8 +190,8 @@ public class ItemCompiler {
     /**
      * Resolve textura de skull com placeholders.
      *
-     * @param item GuiItem
-     * @param player Player
+     * @param item    GuiItem
+     * @param player  Player
      * @param context Contexto
      * @return Texture value resolvido
      */
@@ -194,8 +199,7 @@ public class ItemCompiler {
     private String resolveSkullTexture(
             @NotNull GuiItem item,
             @Nullable Player player,
-            @NotNull InventoryContext context
-    ) {
+            @NotNull InventoryContext context) {
         String headValue = item.getHeadValue();
         if (headValue == null) {
             return "self";
@@ -208,10 +212,11 @@ public class ItemCompiler {
     /**
      * Verifica se item é cacheável.
      *
-     * <p>Item é cacheável se:
+     * <p>
+     * Item é cacheável se:
      * <ul>
-     *     <li>GuiItem.cacheable == true</li>
-     *     <li>Não contém placeholders dinâmicos (PlaceholderAPI)</li>
+     * <li>GuiItem.cacheable == true</li>
+     * <li>Não contém placeholders dinâmicos (PlaceholderAPI)</li>
      * </ul>
      * </p>
      *
@@ -246,7 +251,7 @@ public class ItemCompiler {
     /**
      * Constrói cache key para item.
      *
-     * @param item GuiItem
+     * @param item    GuiItem
      * @param context Contexto
      * @return CacheKey
      */
@@ -280,7 +285,7 @@ public class ItemCompiler {
      * Invalida cache de item específico.
      *
      * @param inventoryId ID do inventário
-     * @param itemKey Chave do item
+     * @param itemKey     Chave do item
      */
     public void invalidateCache(@NotNull String inventoryId, @NotNull String itemKey) {
         cache.invalidate(inventoryId, itemKey);

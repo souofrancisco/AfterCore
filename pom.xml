@@ -6,11 +6,11 @@
 
     <groupId>com.afterlands</groupId>
     <artifactId>AfterCore</artifactId>
-    <version>1.0.2</version>
+    <version>1.1.0</version>
     <packaging>jar</packaging>
 
     <name>AfterCore</name>
-    <description>AfterLands - Core Library Plugin with Inventory Framework</description>
+    <description>AfterLands - Core Library Plugin</description>
 
     <properties>
         <maven.compiler.source>21</maven.compiler.source>

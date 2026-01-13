@@ -27,15 +27,19 @@ import java.util.stream.Collectors;
 /**
  * Gerenciador de configurações de inventários.
  *
- * <p>Responsável por:</p>
+ * <p>
+ * Responsável por:
+ * </p>
  * <ul>
- *     <li>Carregar inventários de inventories.yml</li>
- *     <li>Parse de itens, tabs, paginação, animações</li>
- *     <li>Cache de configurações (invalidado em reload)</li>
- *     <li>Validação de schema</li>
+ * <li>Carregar inventários de inventories.yml</li>
+ * <li>Parse de itens, tabs, paginação, animações</li>
+ * <li>Cache de configurações (invalidado em reload)</li>
+ * <li>Validação de schema</li>
  * </ul>
  *
- * <p><b>Thread Safety:</b> Cache thread-safe (Caffeine), parsing sync.</p>
+ * <p>
+ * <b>Thread Safety:</b> Cache thread-safe (Caffeine), parsing sync.
+ * </p>
  */
 public class InventoryConfigManager {
 
@@ -67,7 +71,9 @@ public class InventoryConfigManager {
     /**
      * Carrega configuração de inventories.yml.
      *
-     * <p>Cria arquivo padrão se não existir.</p>
+     * <p>
+     * Cria arquivo padrão se não existir.
+     * </p>
      */
     public void loadConfiguration() {
         if (!inventoriesFile.exists()) {
@@ -83,6 +89,72 @@ public class InventoryConfigManager {
 
         plugin.getLogger().info("Loaded inventories configuration (config-version: " +
                 inventoriesConfig.getInt("config-version", 1) + ")");
+    }
+
+    /**
+     * Carrega configurações de um arquivo YAML externo.
+     *
+     * @param file Arquivo YAML
+     * @return Lista de InventoryConfig parseados
+     */
+    public List<InventoryConfig> loadConfigs(@NotNull File file) {
+        if (!file.exists()) {
+            plugin.getLogger().warning("External inventory file does not exist: " + file.getAbsolutePath());
+            return Collections.emptyList();
+        }
+
+        YamlConfiguration config = YamlConfiguration.loadConfiguration(file);
+        List<InventoryConfig> loaded = new ArrayList<>();
+
+        // 1. Carregar default-items locais do arquivo
+        ConfigurationSection defaultItemsSection = config.getConfigurationSection("default-items");
+        if (defaultItemsSection != null) {
+            for (String key : defaultItemsSection.getKeys(false)) {
+                ConfigurationSection itemSection = defaultItemsSection.getConfigurationSection(key);
+                if (itemSection != null) {
+                    GuiItem item = parseGuiItem(key, -1, itemSection);
+                    defaultItems.put(key, item);
+                    plugin.getLogger().fine("Loaded external default item: " + key);
+                }
+            }
+        }
+
+        // 2. Carregar inventários (tenta 'inventories' section, se falhar, tenta root)
+        ConfigurationSection section = config.getConfigurationSection("inventories");
+        boolean isRoot = (section == null);
+        if (isRoot) {
+            section = config;
+        }
+
+        Set<String> keys = section.getKeys(false);
+        for (String key : keys) {
+            // Se estiver na root, ignora chaves reservadas
+            if (isRoot && (key.equals("default-items") || key.equals("config-version"))) {
+                continue;
+            }
+
+            ConfigurationSection invSection = section.getConfigurationSection(key);
+            if (invSection == null) {
+                continue;
+            }
+
+            // Heurística básica: valida se parece um inventário (tem 'title' ou 'size')
+            if (isRoot
+                    && !(invSection.contains("title") || invSection.contains("size") || invSection.contains("items"))) {
+                continue;
+            }
+
+            try {
+                InventoryConfig invConfig = parseInventoryConfig(key, invSection);
+                loaded.add(invConfig);
+            } catch (Exception e) {
+                plugin.getLogger().log(Level.WARNING,
+                        "Failed to parse external inventory '" + key + "' from " + file.getName(), e);
+            }
+        }
+
+        plugin.getLogger().info("Loaded " + loaded.size() + " external inventories from " + file.getName());
+        return loaded;
     }
 
     /**
@@ -107,8 +179,10 @@ public class InventoryConfigManager {
     /**
      * Obtém configuração de um inventário.
      *
-     * <p>Cache hit: retorna imediatamente.
-     * Cache miss: parse e cache.</p>
+     * <p>
+     * Cache hit: retorna imediatamente.
+     * Cache miss: parse e cache.
+     * </p>
      *
      * @param inventoryId ID do inventário
      * @return InventoryConfig ou null se não existir
@@ -116,6 +190,27 @@ public class InventoryConfigManager {
     @Nullable
     public InventoryConfig getInventoryConfig(@NotNull String inventoryId) {
         return configCache.get(inventoryId, this::loadInventoryConfig);
+    }
+
+    /**
+     * Obtém um item padrão pelo nome.
+     *
+     * @param key Nome do item padrão
+     * @return GuiItem ou null se não existir
+     */
+    @Nullable
+    public GuiItem getDefaultItem(@NotNull String key) {
+        return defaultItems.get(key);
+    }
+
+    /**
+     * Obtém todos os itens padrão.
+     *
+     * @return Mapa imutável de itens padrão
+     */
+    @NotNull
+    public Map<String, GuiItem> getAllDefaultItems() {
+        return Collections.unmodifiableMap(defaultItems);
     }
 
     /**
@@ -143,7 +238,21 @@ public class InventoryConfigManager {
     @NotNull
     private InventoryConfig parseInventoryConfig(@NotNull String id, @NotNull ConfigurationSection section) {
         String title = section.getString("title", "");
-        int size = section.getInt("size", 3);
+        int sizeRaw = section.getInt("size", 3);
+
+        // Convert slot-based size to rows (AfterBlockAnimations uses slot count,
+        // AfterCore uses rows)
+        int size = sizeRaw;
+        if (sizeRaw > 6) {
+            // Assume it's slot count, convert to rows
+            size = sizeRaw / 9;
+            if (size < 1)
+                size = 1;
+            if (size > 6)
+                size = 6;
+            plugin.getLogger()
+                    .fine("Converted size from " + sizeRaw + " slots to " + size + " rows for inventory: " + id);
+        }
 
         // Parse items
         List<GuiItem> items = parseItems(section.getConfigurationSection("items"));
@@ -158,7 +267,8 @@ public class InventoryConfigManager {
         List<AnimationConfig> animations = parseAnimations(section.getConfigurationSection("animations"));
 
         // Parse persistence
-        InventoryConfig.PersistenceConfig persistence = parsePersistence(section.getConfigurationSection("persistence"));
+        InventoryConfig.PersistenceConfig persistence = parsePersistence(
+                section.getConfigurationSection("persistence"));
 
         // Shared flag
         boolean shared = section.getBoolean("shared", false);
@@ -170,7 +280,8 @@ public class InventoryConfigManager {
         Map<String, Object> metadata = new HashMap<>();
         metadata.put("raw_section", section);
 
-        return new InventoryConfig(id, title, size, items, tabs, pagination, animations, persistence, shared, titleUpdateInterval, metadata);
+        return new InventoryConfig(id, title, size, items, tabs, pagination, animations, persistence, shared,
+                titleUpdateInterval, metadata);
     }
 
     /**
@@ -190,8 +301,26 @@ public class InventoryConfigManager {
                 continue;
             }
 
+            // Template items (non-numeric keys like "animation-item", "placement-item",
+            // etc.)
+            // are parsed with slot=-1 so they're available for template lookup
+            boolean isTemplateItem = slotKey.contains("-") && !slotKey.matches("^\\d+(-\\d+)?$");
+            if (isTemplateItem) {
+                // Parse as template item with slot=-1 (not rendered, only for lookup)
+                GuiItem item = parseGuiItem(slotKey, -1, itemSection);
+                items.add(item);
+                plugin.getLogger().fine("Parsed template item: " + slotKey + " with type: " + item.getType());
+                continue;
+            }
+
             // Parse slots (pode ser range: "0-8", lista: "0;4;8", ou único: "13")
-            List<Integer> slots = parseSlotRange(slotKey);
+            List<Integer> slots;
+            try {
+                slots = parseSlotRange(slotKey);
+            } catch (NumberFormatException e) {
+                plugin.getLogger().fine("Skipping non-numeric item key: " + slotKey);
+                continue;
+            }
 
             for (int slot : slots) {
                 GuiItem item = parseGuiItem(slotKey, slot, itemSection);
@@ -205,12 +334,14 @@ public class InventoryConfigManager {
     /**
      * Parse de slot range.
      *
-     * <p>Exemplos:</p>
+     * <p>
+     * Exemplos:
+     * </p>
      * <ul>
-     *     <li>"13" → [13]</li>
-     *     <li>"0-8" → [0,1,2,3,4,5,6,7,8]</li>
-     *     <li>"0;4;8" → [0,4,8]</li>
-     *     <li>"0-8;36-44" → [0-8, 36-44]</li>
+     * <li>"13" → [13]</li>
+     * <li>"0-8" → [0,1,2,3,4,5,6,7,8]</li>
+     * <li>"0;4;8" → [0,4,8]</li>
+     * <li>"0-8;36-44" → [0-8, 36-44]</li>
      * </ul>
      */
     @NotNull
@@ -248,47 +379,158 @@ public class InventoryConfigManager {
         builder.slot(slot);
         builder.type(section.getString("type", key));
 
+        // Track if we inherited from default item
+        GuiItem inheritedFrom = null;
+
         // Material
         String materialStr = section.getString("material", "STONE");
-        try {
-            Material material = Material.valueOf(materialStr.toUpperCase());
-            builder.material(material);
-        } catch (IllegalArgumentException e) {
-            plugin.getLogger().warning("Invalid material: " + materialStr + " in item " + key);
-            builder.material(Material.STONE);
+
+        // Handle item: references to default items
+        if (materialStr.startsWith("item:")) {
+            String itemRef = materialStr.substring(5);
+            GuiItem defaultItem = defaultItems.get(itemRef);
+            if (defaultItem != null) {
+                inheritedFrom = defaultItem;
+                // Copy ALL properties from default item first
+                builder.material(defaultItem.getMaterial());
+                builder.data(defaultItem.getData());
+                builder.name(defaultItem.getName());
+                builder.lore(defaultItem.getLore());
+                builder.actions(defaultItem.getActions());
+                builder.enabled(defaultItem.isEnabled());
+                builder.enchanted(defaultItem.isEnchanted());
+                builder.hideFlags(defaultItem.isHideFlags());
+                // Copy head properties
+                builder.headType(defaultItem.getHeadType());
+                builder.headValue(defaultItem.getHeadValue());
+                if (defaultItem.hasClickHandlers()) {
+                    builder.clickHandlers(defaultItem.getClickHandlers());
+                }
+                plugin.getLogger().fine("Resolved item reference: " + itemRef + " -> " + defaultItem.getMaterial());
+            } else {
+                plugin.getLogger().warning(
+                        "Invalid item reference: " + materialStr + " in item " + key + " (not found in default-items)");
+                builder.material(Material.STONE);
+            }
+        } else if (materialStr.toLowerCase().startsWith("head:")) {
+            // Shorthand for player head
+            builder.material(Material.SKULL_ITEM);
+            builder.data((short) 3);
+
+            String headVal = materialStr.substring(5).trim();
+            if ("self".equalsIgnoreCase(headVal)) {
+                builder.headType(GuiItem.HeadType.SELF);
+            } else if (headVal.toLowerCase().startsWith("base64:")) {
+                builder.headType(GuiItem.HeadType.BASE64);
+                builder.headValue(headVal.substring(7).trim());
+            } else if (headVal.startsWith("ey")) {
+                // Heuristic: starts with "ey" -> Base64 encoded JSON
+                builder.headType(GuiItem.HeadType.BASE64);
+                builder.headValue(headVal);
+            } else {
+                // Assume player name
+                builder.headType(GuiItem.HeadType.PLAYER);
+                builder.headValue(headVal);
+            }
+        } else {
+            try {
+                Material material = Material.valueOf(materialStr.toUpperCase());
+                builder.material(material);
+            } catch (IllegalArgumentException e) {
+                plugin.getLogger().warning("Invalid material: " + materialStr + " in item " + key);
+                builder.material(Material.STONE);
+            }
         }
 
-        // Data
-        builder.data((short) section.getInt("data", 0));
+        // Data (override if specified)
+        if (section.contains("data")) {
+            builder.data((short) section.getInt("data", 0));
+        }
 
-        // Amount
-        builder.amount(section.getInt("amount", 1));
+        // Amount (override if specified)
+        if (section.contains("amount")) {
+            builder.amount(section.getInt("amount", 1));
+        }
 
-        // Name
-        builder.name(section.getString("name", ""));
+        // Name (override if specified)
+        if (section.contains("name")) {
+            builder.name(section.getString("name", ""));
+        }
 
-        // Lore
+        // Lore (override if specified)
         if (section.contains("lore")) {
             builder.lore(section.getStringList("lore"));
         }
 
-        // Flags
-        builder.enabled(section.getBoolean("enabled", true));
-        builder.enchanted(section.getBoolean("enchanted", false));
-        builder.hideFlags(section.getBoolean("hide-flags", false));
+        // Flags (override if specified)
+        if (section.contains("enabled")) {
+            builder.enabled(section.getBoolean("enabled", true));
+        }
+        if (section.contains("enchanted")) {
+            builder.enchanted(section.getBoolean("enchanted", false));
+        }
+        if (section.contains("hide-flags")) {
+            builder.hideFlags(section.getBoolean("hide-flags", false));
+        }
 
-        // Actions
+        // Parse duplicate: "all" or list of slots
+        if (section.contains("duplicate")) {
+            String duplicateStr = section.getString("duplicate", "");
+            if ("all".equalsIgnoreCase(duplicateStr)) {
+                // Special marker - will be resolved later in renderItems
+                builder.duplicateSlots(List.of(-1)); // -1 = fill all empty
+            } else {
+                // Parse as slot list or range
+                try {
+                    List<Integer> dupSlots = parseSlotRange(duplicateStr);
+                    builder.duplicateSlots(dupSlots);
+                } catch (NumberFormatException e) {
+                    plugin.getLogger().warning("Invalid duplicate value: " + duplicateStr + " in item " + key);
+                }
+            }
+            plugin.getLogger().fine("Parsed item " + key + " duplicate: " + section.getString("duplicate"));
+        }
+
+        // Actions (override if specified, merge with inherited)
+        List<String> actions = new ArrayList<>();
+        if (inheritedFrom != null && !inheritedFrom.getActions().isEmpty()) {
+            actions.addAll(inheritedFrom.getActions());
+        }
         if (section.contains("actions")) {
-            builder.actions(section.getStringList("actions"));
+            // Override if new actions specified
+            actions = section.getStringList("actions");
+            builder.actions(actions);
+        }
+
+        // Support for "action" (singular) alias - common mistake/alternative
+        if (section.contains("action")) {
+            List<String> extraActions;
+            if (section.isList("action")) {
+                extraActions = section.getStringList("action");
+            } else {
+                extraActions = List.of(section.getString("action"));
+            }
+
+            // If we already have actions (from "actions" key), append checking for
+            // duplicates/order
+            // But usually it's one or the other. If both exist, we append.
+            if (actions.isEmpty()) {
+                builder.actions(extraActions);
+            } else {
+                // Create mutable copy if needed and append
+                List<String> combined = new ArrayList<>(actions);
+                combined.addAll(extraActions);
+                builder.actions(combined);
+            }
         }
 
         // Click handlers por tipo
         ClickHandlers.Builder clickBuilder = ClickHandlers.builder();
         boolean hasClickHandlers = false;
 
-        // Default actions (compatibilidade)
-        if (section.contains("actions")) {
-            clickBuilder.defaultActions(section.getStringList("actions"));
+        // Default actions (compatibilidade) - use merged actions
+        if (!actions.isEmpty()) {
+            clickBuilder.defaultActions(actions);
             hasClickHandlers = true;
         }
 
@@ -335,17 +577,24 @@ public class InventoryConfigManager {
             builder.clickHandlers(clickBuilder.build());
         }
 
-        // Head
         if (section.contains("head")) {
-            String headValue = section.getString("head");
-            if ("self".equalsIgnoreCase(headValue)) {
+            String headVal = section.getString("head");
+            if ("self".equalsIgnoreCase(headVal)) {
                 builder.headType(GuiItem.HeadType.SELF);
-            } else if (headValue.startsWith("player:")) {
+            } else if (headVal.startsWith("player:")) {
                 builder.headType(GuiItem.HeadType.PLAYER);
-                builder.headValue(headValue.substring(7));
-            } else if (headValue.startsWith("base64:")) {
+                builder.headValue(headVal.substring(7));
+            } else if (headVal.startsWith("base64:")) {
                 builder.headType(GuiItem.HeadType.BASE64);
-                builder.headValue(headValue.substring(7));
+                builder.headValue(headVal.substring(7));
+            } else if (headVal.startsWith("ey")) {
+                // Heuristic: starts with "ey" -> Base64 encoded JSON
+                builder.headType(GuiItem.HeadType.BASE64);
+                builder.headValue(headVal);
+            } else {
+                // Assume player name or raw value
+                builder.headType(GuiItem.HeadType.PLAYER);
+                builder.headValue(headVal);
             }
         }
 
@@ -380,7 +629,10 @@ public class InventoryConfigManager {
     /**
      * Parse de tabs.
      *
-     * <p>Formato esperado em YAML:</p>
+     * <p>
+     * Formato esperado em YAML:
+     * </p>
+     * 
      * <pre>
      * tabs:
      *   - id: "weapons"
@@ -498,7 +750,10 @@ public class InventoryConfigManager {
     /**
      * Parse de pagination.
      *
-     * <p>Formato esperado em YAML:</p>
+     * <p>
+     * Formato esperado em YAML:
+     * </p>
+     * 
      * <pre>
      * pagination:
      *   mode: HYBRID  # NATIVE_ONLY, LAYOUT_ONLY, HYBRID
@@ -539,7 +794,8 @@ public class InventoryConfigManager {
             for (int i = 0; i < layout.size(); i++) {
                 String line = layout.get(i);
                 if (line.length() != 9) {
-                    plugin.getLogger().warning("Invalid layout line " + i + " (expected 9 chars, got " + line.length() + "): " + line);
+                    plugin.getLogger().warning(
+                            "Invalid layout line " + i + " (expected 9 chars, got " + line.length() + "): " + line);
                 }
             }
         }
@@ -582,8 +838,9 @@ public class InventoryConfigManager {
 
         PaginationConfig config = new PaginationConfig(mode, layout, paginationSlots, itemsPerPage, showNavigation);
 
-        plugin.getLogger().fine("Parsed pagination: mode=" + mode + ", itemsPerPage=" + itemsPerPage +
-                ", layout=" + layout.size() + " lines, slots=" + paginationSlots.size());
+        plugin.getLogger()
+                .fine("Parsed pagination: mode=" + mode + ", itemsPerPage=" + itemsPerPage +
+                        ", layout=" + layout.size() + " lines, slots=" + paginationSlots.size());
 
         return config;
     }
@@ -591,7 +848,10 @@ public class InventoryConfigManager {
     /**
      * Parse de animations (global do inventário).
      *
-     * <p>Formato YAML esperado:</p>
+     * <p>
+     * Formato YAML esperado:
+     * </p>
+     * 
      * <pre>
      * animations:
      *   - id: "global_pulse"
@@ -646,7 +906,10 @@ public class InventoryConfigManager {
     /**
      * Parse de animations de um item específico.
      *
-     * <p>Formato YAML esperado:</p>
+     * <p>
+     * Formato YAML esperado:
+     * </p>
+     * 
      * <pre>
      * items:
      *   "13":
@@ -722,10 +985,19 @@ public class InventoryConfigManager {
     }
 
     /**
-     * Limpa cache.
+     * Limpa o cache de configurações.
      */
     public void clearCache() {
         configCache.invalidateAll();
+    }
+
+    /**
+     * Invalida uma configuração específica do cache.
+     * 
+     * @param inventoryId ID do inventário a invalidar
+     */
+    public void invalidate(@NotNull String inventoryId) {
+        configCache.invalidate(inventoryId);
     }
 
     /**
@@ -747,7 +1019,9 @@ public class InventoryConfigManager {
     /**
      * Converte Map para ConfigurationSection.
      *
-     * <p>Helper para parsing de tabs/items aninhados.</p>
+     * <p>
+     * Helper para parsing de tabs/items aninhados.
+     * </p>
      */
     @NotNull
     private ConfigurationSection toConfigSection(@NotNull Map<?, ?> map) {

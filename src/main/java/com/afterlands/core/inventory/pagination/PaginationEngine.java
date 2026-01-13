@@ -1,6 +1,7 @@
 package com.afterlands.core.inventory.pagination;
 
 import com.afterlands.core.inventory.InventoryConfig;
+import com.afterlands.core.inventory.config.InventoryConfigManager;
 import com.afterlands.core.inventory.item.GuiItem;
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
@@ -15,17 +16,25 @@ import java.util.logging.Logger;
 /**
  * Motor híbrido de paginação para inventários.
  *
- * <p><b>Responsabilidades:</b></p>
+ * <p>
+ * <b>Responsabilidades:</b>
+ * </p>
  * <ul>
- *     <li>Gerenciar paginação de itens em 3 modos (NATIVE_ONLY, LAYOUT_ONLY, HYBRID)</li>
- *     <li>Parse de layouts configuráveis (caracteres 'O' = content slots)</li>
- *     <li>Renderizar navigation controls (next/prev buttons)</li>
- *     <li>Distribuir items pelos slots de conteúdo</li>
+ * <li>Gerenciar paginação de itens em 3 modos (NATIVE_ONLY, LAYOUT_ONLY,
+ * HYBRID)</li>
+ * <li>Parse de layouts configuráveis (caracteres 'O' = content slots)</li>
+ * <li>Renderizar navigation controls (next/prev buttons)</li>
+ * <li>Distribuir items pelos slots de conteúdo</li>
  * </ul>
  *
- * <p><b>Thread Safety:</b> Todas as operações são thread-safe. O cache de layouts é compartilhado.</p>
+ * <p>
+ * <b>Thread Safety:</b> Todas as operações são thread-safe. O cache de layouts
+ * é compartilhado.
+ * </p>
  *
- * <p><b>Performance:</b> Cache de parsed layouts para evitar re-parsing repetido.</p>
+ * <p>
+ * <b>Performance:</b> Cache de parsed layouts para evitar re-parsing repetido.
+ * </p>
  */
 public class PaginationEngine {
 
@@ -41,18 +50,40 @@ public class PaginationEngine {
     private static final String DEFAULT_NEXT_NAME = "&aNext Page";
     private static final String DEFAULT_PREV_NAME = "&cPrevious Page";
 
+    // Reference to config manager for default item lookups
+    private final InventoryConfigManager configManager;
+
+    /**
+     * Constructor with config manager access.
+     *
+     * @param configManager Config manager for default item lookups
+     */
+    public PaginationEngine(@Nullable InventoryConfigManager configManager) {
+        this.configManager = configManager;
+    }
+
+    /**
+     * Default constructor (no config manager access).
+     */
+    public PaginationEngine() {
+        this(null);
+    }
+
     /**
      * Cria uma página paginada para um inventário.
      *
-     * <p><b>Thread:</b> Qualquer (thread-safe)</p>
+     * <p>
+     * <b>Thread:</b> Qualquer (thread-safe)
+     * </p>
      *
-     * @param config Configuração do inventário
-     * @param pageNumber Número da página (1-indexed)
+     * @param config       Configuração do inventário
+     * @param pageNumber   Número da página (1-indexed)
      * @param contentItems Items a serem paginados
      * @return PaginatedView com items da página + navigation controls
      */
     @NotNull
-    public PaginatedView createPage(@NotNull InventoryConfig config, int pageNumber, @NotNull List<GuiItem> contentItems) {
+    public PaginatedView createPage(@NotNull InventoryConfig config, int pageNumber,
+            @NotNull List<GuiItem> contentItems) {
         PaginationConfig pagination = config.pagination();
         if (pagination == null) {
             // Sem paginação: retorna todos items
@@ -83,7 +114,7 @@ public class PaginationEngine {
     /**
      * Calcula total de páginas necessárias.
      *
-     * @param config Configuração do inventário
+     * @param config     Configuração do inventário
      * @param totalItems Total de items a paginar
      * @return Número de páginas (mínimo 1)
      */
@@ -100,7 +131,10 @@ public class PaginationEngine {
     /**
      * Parse layout e extrai content slots ('O' = content).
      *
-     * <p><b>Layout format:</b></p>
+     * <p>
+     * <b>Layout format:</b>
+     * </p>
+     * 
      * <pre>
      * layout:
      *   - "xxxxxxxxx"  # Row 0 (slots 0-8): decoração
@@ -109,11 +143,13 @@ public class PaginationEngine {
      *   - "xxxxNxxxx"  # Row 3 (slot 40): navigation
      * </pre>
      *
-     * <p><b>Caracteres válidos:</b></p>
+     * <p>
+     * <b>Caracteres válidos:</b>
+     * </p>
      * <ul>
-     *     <li>'O' = content slot (onde items são colocados)</li>
-     *     <li>'N' = navigation slot (next/prev buttons)</li>
-     *     <li>'x', ' ', '-' = decoração/slot vazio</li>
+     * <li>'O' = content slot (onde items são colocados)</li>
+     * <li>'N' = navigation slot (next/prev buttons)</li>
+     * <li>'x', ' ', '-' = decoração/slot vazio</li>
      * </ul>
      *
      * @param layout Layout strings (cada string = 9 chars = 1 row)
@@ -145,22 +181,25 @@ public class PaginationEngine {
     /**
      * Renderiza navigation controls (next/prev buttons).
      *
-     * <p><b>Placeholders suportados:</b></p>
+     * <p>
+     * <b>Placeholders suportados:</b>
+     * </p>
      * <ul>
-     *     <li>{page} - Página atual</li>
-     *     <li>{total_pages} - Total de páginas</li>
+     * <li>{page} - Página atual</li>
+     * <li>{total_pages} - Total de páginas</li>
      * </ul>
      *
      * @param currentPage Página atual (1-indexed)
-     * @param totalPages Total de páginas
-     * @param pagination Configuração de paginação
-     * @param config Configuração do inventário (para navigation items customizados)
+     * @param totalPages  Total de páginas
+     * @param pagination  Configuração de paginação
+     * @param config      Configuração do inventário (para navigation items
+     *                    customizados)
      * @return Map de slot -> GuiItem para navigation
      */
     @NotNull
     public Map<Integer, GuiItem> renderNavigationControls(int currentPage, int totalPages,
-                                                          @NotNull PaginationConfig pagination,
-                                                          @NotNull InventoryConfig config) {
+            @NotNull PaginationConfig pagination,
+            @NotNull InventoryConfig config) {
         Map<Integer, GuiItem> controls = new HashMap<>();
 
         List<Integer> navSlots = parseNavigationSlots(pagination.layout());
@@ -172,7 +211,8 @@ public class PaginationEngine {
         }
 
         if (navSlots.size() < 2) {
-            LOGGER.warning("Not enough navigation slots for pagination. Need at least 2 (prev, next).");
+            // LOGGER.warning("Not enough navigation slots for pagination. Need at least 2
+            // (prev, next).");
             return controls;
         }
 
@@ -199,18 +239,20 @@ public class PaginationEngine {
     /**
      * Distribui items pelos slots de conteúdo.
      *
-     * <p>Aplica paginação: apenas items da página atual são incluídos.</p>
+     * <p>
+     * Aplica paginação: apenas items da página atual são incluídos.
+     * </p>
      *
-     * @param items Todos os items (ordenados)
+     * @param items        Todos os items (ordenados)
      * @param contentSlots Slots onde items podem ser colocados
-     * @param page Página atual (1-indexed)
+     * @param page         Página atual (1-indexed)
      * @param itemsPerPage Items por página (geralmente = contentSlots.size())
      * @return Map de slot -> GuiItem para a página
      */
     @NotNull
     public Map<Integer, GuiItem> distributeItems(@NotNull List<GuiItem> items,
-                                                 @NotNull List<Integer> contentSlots,
-                                                 int page, int itemsPerPage) {
+            @NotNull List<Integer> contentSlots,
+            int page, int itemsPerPage) {
         Map<Integer, GuiItem> result = new HashMap<>();
 
         // Calculate offset for current page
@@ -254,7 +296,8 @@ public class PaginationEngine {
                 // Parse layout
                 slots = parseContentSlots(pagination.layout());
                 if (slots.isEmpty()) {
-                    LOGGER.warning("Layout parsing returned 0 content slots for " + cacheKey + ". Falling back to pagination slots.");
+                    LOGGER.warning("Layout parsing returned 0 content slots for " + cacheKey
+                            + ". Falling back to pagination slots.");
                     slots = pagination.paginationSlots();
                 }
             }
@@ -286,7 +329,8 @@ public class PaginationEngine {
 
         for (int row = 0; row < layout.size(); row++) {
             String line = layout.get(row);
-            if (line.length() != 9) continue;
+            if (line.length() != 9)
+                continue;
 
             for (int col = 0; col < 9; col++) {
                 char ch = line.charAt(col);
@@ -340,6 +384,7 @@ public class PaginationEngine {
      */
     @NotNull
     private Optional<GuiItem> findNavigationItem(@NotNull InventoryConfig config, String... types) {
+        // First search in inventory's items by type
         for (String type : types) {
             Optional<GuiItem> found = config.items().stream()
                     .filter(item -> type.equalsIgnoreCase(item.getType()))
@@ -348,6 +393,17 @@ public class PaginationEngine {
                 return found;
             }
         }
+
+        // Fallback: search in default items by key name
+        if (configManager != null) {
+            for (String type : types) {
+                GuiItem defaultItem = configManager.getDefaultItem(type);
+                if (defaultItem != null) {
+                    return Optional.of(defaultItem);
+                }
+            }
+        }
+
         return Optional.empty();
     }
 
@@ -382,7 +438,9 @@ public class PaginationEngine {
     /**
      * Limpa cache de layouts.
      *
-     * <p>Útil para reload de configurações.</p>
+     * <p>
+     * Útil para reload de configurações.
+     * </p>
      */
     public void clearCache() {
         layoutCache.invalidateAll();
