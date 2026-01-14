@@ -1,5 +1,5 @@
 name: AfterCore
-main: com.afterlands.core.bootstrap.AfterCorePlugin
+main: com.afterlands.core.AfterCorePlugin
 version: 1.0.2
 build-date: '${maven.build.timestamp}'
 author: AfterLands

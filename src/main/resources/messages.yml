@@ -1,6 +1,14 @@
 prefix: "&8[&bAfterCore&8]&r "
 
 errors:
-  no-permission: "&cSem permissão."
-  player-only: "&cApenas jogadores."
+  no-permission: "&cVoce nao tem permissao para isso."
+  player-only: "&cEste comando so pode ser usado por jogadores."
+  internal: "&cOcorreu um erro interno. Contate um administrador."
+
+commands:
+  unknown-subcommand: "&cSubcomando desconhecido: &f{subcommand}"
+  usage: "&eUso: &f{usage}"
+  help:
+    header: "&6=== Ajuda: &f{command} &6==="
+    line: " &f{command} &7- {description}"
 
