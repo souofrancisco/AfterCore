@@ -56,18 +56,7 @@ jobs:
         echo $REPO_NAME
         ls target
         file=$(ls target/$REPO_NAME.jar)
-        curl "$URL&directory=/plugins" \
+        curl "$URL&directory=/AfterUpdate" \
           -H 'Content-Type: multipart/form-data' \
           -F "files=@$file" \
           -X POST
-
-    - name: Restart Pterodactyl server
-      run: |
-        curl "https://${{ vars.PTERO_HOST }}/api/client/servers/${{ vars.PTERO_SERVER_ID }}/power" \
-          -H 'Accept: application/json' \
-          -H 'Content-Type: application/json' \
-          -H 'Authorization: Bearer ${{ secrets.PTERO_API_KEY }}' \
-          -X POST \
-          -d '{
-            "signal": "restart"
-          }'
