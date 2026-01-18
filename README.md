@@ -14,7 +14,7 @@
   <p align="center">
     <strong>AfterCore</strong> is a high-performance library plugin for <strong>Minecraft 1.8.8 (Java 21)</strong>.
     <br>
-    It creates a shared infrastructure (Database, Inventory GUI, Actions, Conditions) to eliminate code duplication across all AfterLands plugins while maintaining <strong>20 TPS at 500+ concurrent players</strong>.
+    It creates a shared infrastructure (Database, Inventory Framework, Command Framework, Actions, Conditions) to eliminate code duplication across all AfterLands plugins while maintaining <strong>20 TPS at high concurrent players</strong>.
   </p>
 </div>
 
@@ -24,23 +24,8 @@ The complete documentation is available in our **[GitHub Wiki](https://github.co
 
 *   **[Getting Started](https://github.com/AfterLands/AfterCore/wiki/Getting-Started)**
 *   **[Inventory Framework](https://github.com/AfterLands/AfterCore/wiki/InventoryService)**
+*   **[Command Framework](https://github.com/AfterLands/AfterCore/wiki/CommandService)**
 *   **[Core APIs](https://github.com/AfterLands/AfterCore/wiki/AfterCoreAPI)**
-
-## ✨ Key Features
-
-### 🎨 Inventory Framework
-A complete, high-performance GUI system.
-*   **YAML Configuration**: Create menus without code.
-*   **Performance**: Hybrid pagination (35x faster), smart caching (Caffeine).
-*   **Features**: Animations, Drag-and-drop, Shared Inventories, Dynamic Titles.
-*   **Click Handlers**: Support for different click types (LEFT, RIGHT, SHIFT, MIDDLE, etc.) via YAML or Java API.
-*   **[Examples](https://github.com/AfterLands/AfterCore/wiki/Inventory-Framework-Examples)** | **[API Reference](https://github.com/AfterLands/AfterCore/wiki/Inventory-Framework-API)**
-
-### 🔧 Core Services
-*   **Async Database**: HikariCP pooling for MySQL/SQLite.
-*   **Conditions & Actions**: Unified engine for gameplay logic.
-*   **Diagnostics**: `/acore` command for real-time health checks.
-*   **Metrics**: Custom metrics collection with low overhead.
 
 ## 🛠️ Tech Stack
 
@@ -60,7 +45,7 @@ mvn clean package
 <dependency>
     <groupId>com.afterlands</groupId>
     <artifactId>aftercore</artifactId>
-    <version>1.0.2</version>
+    <version>1.3.1</version>
     <scope>provided</scope>
 </dependency>
 ```
