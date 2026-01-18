@@ -9,10 +9,15 @@ import java.util.*;
 /**
  * Argument type for enum values.
  *
- * <p>Parses enum constants with case-insensitive matching.
- * Provides tab completion for all enum values.</p>
+ * <p>
+ * Parses enum constants with case-insensitive matching.
+ * Provides tab completion for all enum values.
+ * </p>
  *
- * <p>Example usage:</p>
+ * <p>
+ * Example usage:
+ * </p>
+ * 
  * <pre>{@code
  * ArgumentType<GameMode> gameModeType = EnumType.of(GameMode.class);
  * }</pre>
@@ -61,7 +66,8 @@ public final class EnumType<E extends Enum<E>> implements ArgumentType<E> {
         E value = valueMap.get(lower);
 
         if (value == null) {
-            throw new ParseException(input, "must be one of: " + String.join(", ", sortedNames));
+            String options = String.join(", ", sortedNames);
+            throw new ParseException(input, "invalid-enum:" + options);
         }
 
         return value;

@@ -1,5 +1,6 @@
 package com.afterlands.core.inventory.click;
 
+import com.afterlands.core.inventory.action.ConfiguredAction;
 import org.bukkit.event.inventory.ClickType;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -11,40 +12,21 @@ import java.util.Map;
 /**
  * Container imutável de handlers por tipo de click.
  *
- * <p>Suporta tanto handlers programáticos (ClickHandler) quanto
- * listas de actions (List&lt;String&gt;) para YAML.</p>
- *
- * <p>Exemplo YAML:</p>
- * <pre>{@code
- * items:
- *   shop_item:
- *     on_left_click:
- *       - "message: &aBought item!"
- *     on_right_click:
- *       - "message: &eSold item!"
- *     actions:  # fallback
- *       - "message: &cUse left or right click!"
- * }</pre>
- *
- * <p>Exemplo programático:</p>
- * <pre>{@code
- * ClickHandlers handlers = ClickHandlers.builder()
- *     .onLeftClick(ctx -> ctx.sendMessage("&aBought!"))
- *     .onRightClick(ctx -> ctx.sendMessage("&eSold!"))
- *     .defaultHandler(ctx -> ctx.sendMessage("&cInvalid click!"))
- *     .build();
- * }</pre>
+ * <p>
+ * Suporta tanto handlers programáticos (ClickHandler) quanto
+ * ações configuradas (ConfiguredAction) para YAML.
+ * </p>
  */
 public class ClickHandlers {
 
     // Actions por tipo de click (YAML)
-    private final Map<ClickType, List<String>> actionsByType;
+    private final Map<ClickType, ConfiguredAction> actionsByType;
 
     // Handlers programáticos (API Java)
     private final Map<ClickType, ClickHandler> handlersByType;
 
     // Fallback actions (executadas se tipo específico não definido)
-    private final List<String> defaultActions;
+    private final ConfiguredAction defaultActions;
 
     // Fallback handler
     private final ClickHandler defaultHandler;
@@ -52,7 +34,8 @@ public class ClickHandlers {
     private ClickHandlers(Builder builder) {
         this.actionsByType = Map.copyOf(builder.actionsByType);
         this.handlersByType = Map.copyOf(builder.handlersByType);
-        this.defaultActions = builder.defaultActions != null ? List.copyOf(builder.defaultActions) : List.of();
+        this.defaultActions = builder.defaultActions != null ? builder.defaultActions
+                : ConfiguredAction.simple(List.of());
         this.defaultHandler = builder.defaultHandler;
     }
 
@@ -60,10 +43,10 @@ public class ClickHandlers {
      * Obtém actions para um tipo de click.
      *
      * @param clickType Tipo do click
-     * @return Lista de actions ou defaultActions se não definido
+     * @return ConfiguredAction ou defaultActions se não definido
      */
     @NotNull
-    public List<String> getActions(@NotNull ClickType clickType) {
+    public ConfiguredAction getActions(@NotNull ClickType clickType) {
         return actionsByType.getOrDefault(clickType, defaultActions);
     }
 
@@ -86,9 +69,9 @@ public class ClickHandlers {
      */
     public boolean hasHandlerFor(@NotNull ClickType clickType) {
         return handlersByType.containsKey(clickType)
-            || actionsByType.containsKey(clickType)
-            || defaultHandler != null
-            || !defaultActions.isEmpty();
+                || actionsByType.containsKey(clickType)
+                || defaultHandler != null
+                || !defaultActions.success().isEmpty() || !defaultActions.fail().isEmpty();
     }
 
     /**
@@ -125,71 +108,121 @@ public class ClickHandlers {
      * Builder para construir ClickHandlers de forma fluente.
      */
     public static class Builder {
-        private final Map<ClickType, List<String>> actionsByType = new EnumMap<>(ClickType.class);
+        private final Map<ClickType, ConfiguredAction> actionsByType = new EnumMap<>(ClickType.class);
         private final Map<ClickType, ClickHandler> handlersByType = new EnumMap<>(ClickType.class);
-        private List<String> defaultActions;
+        private ConfiguredAction defaultActions;
         private ClickHandler defaultHandler;
 
         // ========== YAML-style setters (actions) ==========
 
         @NotNull
-        public Builder onLeftClick(@NotNull List<String> actions) {
+        public Builder onLeftClick(@NotNull ConfiguredAction actions) {
             actionsByType.put(ClickType.LEFT, actions);
             return this;
         }
 
         @NotNull
-        public Builder onRightClick(@NotNull List<String> actions) {
+        public Builder onLeftClick(@NotNull List<String> actions) {
+            return onLeftClick(ConfiguredAction.simple(actions));
+        }
+
+        @NotNull
+        public Builder onRightClick(@NotNull ConfiguredAction actions) {
             actionsByType.put(ClickType.RIGHT, actions);
             return this;
         }
 
         @NotNull
-        public Builder onShiftLeftClick(@NotNull List<String> actions) {
+        public Builder onRightClick(@NotNull List<String> actions) {
+            return onRightClick(ConfiguredAction.simple(actions));
+        }
+
+        @NotNull
+        public Builder onShiftLeftClick(@NotNull ConfiguredAction actions) {
             actionsByType.put(ClickType.SHIFT_LEFT, actions);
             return this;
         }
 
         @NotNull
-        public Builder onShiftRightClick(@NotNull List<String> actions) {
+        public Builder onShiftLeftClick(@NotNull List<String> actions) {
+            return onShiftLeftClick(ConfiguredAction.simple(actions));
+        }
+
+        @NotNull
+        public Builder onShiftRightClick(@NotNull ConfiguredAction actions) {
             actionsByType.put(ClickType.SHIFT_RIGHT, actions);
             return this;
         }
 
         @NotNull
-        public Builder onMiddleClick(@NotNull List<String> actions) {
+        public Builder onShiftRightClick(@NotNull List<String> actions) {
+            return onShiftRightClick(ConfiguredAction.simple(actions));
+        }
+
+        @NotNull
+        public Builder onMiddleClick(@NotNull ConfiguredAction actions) {
             actionsByType.put(ClickType.MIDDLE, actions);
             return this;
         }
 
         @NotNull
-        public Builder onDoubleClick(@NotNull List<String> actions) {
+        public Builder onMiddleClick(@NotNull List<String> actions) {
+            return onMiddleClick(ConfiguredAction.simple(actions));
+        }
+
+        @NotNull
+        public Builder onDoubleClick(@NotNull ConfiguredAction actions) {
             actionsByType.put(ClickType.DOUBLE_CLICK, actions);
             return this;
         }
 
         @NotNull
-        public Builder onDrop(@NotNull List<String> actions) {
+        public Builder onDoubleClick(@NotNull List<String> actions) {
+            return onDoubleClick(ConfiguredAction.simple(actions));
+        }
+
+        @NotNull
+        public Builder onDrop(@NotNull ConfiguredAction actions) {
             actionsByType.put(ClickType.DROP, actions);
             return this;
         }
 
         @NotNull
-        public Builder onControlDrop(@NotNull List<String> actions) {
+        public Builder onDrop(@NotNull List<String> actions) {
+            return onDrop(ConfiguredAction.simple(actions));
+        }
+
+        @NotNull
+        public Builder onControlDrop(@NotNull ConfiguredAction actions) {
             actionsByType.put(ClickType.CONTROL_DROP, actions);
             return this;
         }
 
         @NotNull
-        public Builder onNumberKey(@NotNull List<String> actions) {
+        public Builder onControlDrop(@NotNull List<String> actions) {
+            return onControlDrop(ConfiguredAction.simple(actions));
+        }
+
+        @NotNull
+        public Builder onNumberKey(@NotNull ConfiguredAction actions) {
             actionsByType.put(ClickType.NUMBER_KEY, actions);
             return this;
         }
 
         @NotNull
-        public Builder onClickType(@NotNull ClickType type, @NotNull List<String> actions) {
+        public Builder onNumberKey(@NotNull List<String> actions) {
+            return onNumberKey(ConfiguredAction.simple(actions));
+        }
+
+        @NotNull
+        public Builder onClickType(@NotNull ClickType type, @NotNull ConfiguredAction actions) {
             actionsByType.put(type, actions);
             return this;
+        }
+
+        @NotNull
+        public Builder onClickType(@NotNull ClickType type, @NotNull List<String> actions) {
+            return onClickType(type, ConfiguredAction.simple(actions));
         }
 
         // ========== API-style setters (handlers) ==========
@@ -257,9 +290,14 @@ public class ClickHandlers {
         // ========== Default fallbacks ==========
 
         @NotNull
-        public Builder defaultActions(@NotNull List<String> actions) {
+        public Builder defaultActions(@NotNull ConfiguredAction actions) {
             this.defaultActions = actions;
             return this;
+        }
+
+        @NotNull
+        public Builder defaultActions(@NotNull List<String> actions) {
+            return defaultActions(ConfiguredAction.simple(actions));
         }
 
         @NotNull

@@ -8,6 +8,8 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
+import org.bukkit.plugin.Plugin;
+
 /**
  * Registry for argument type parsers.
  *
@@ -39,6 +41,7 @@ public final class ArgumentTypeRegistry {
     private static final ArgumentTypeRegistry INSTANCE = new ArgumentTypeRegistry();
 
     private final Map<String, ArgumentType<?>> types = new ConcurrentHashMap<>();
+    private final Map<Plugin, Map<String, ArgumentType<?>>> pluginTypes = new ConcurrentHashMap<>();
 
     private ArgumentTypeRegistry() {
         registerDefaults();
@@ -142,6 +145,7 @@ public final class ArgumentTypeRegistry {
 
         // Entity types
         register(PlayerOnlineType.INSTANCE, "playerOnline", "playeronline", "player", "onlinePlayer");
+        register(PlayerOfflineType.INSTANCE, "playerOffline", "playeroffline", "offlinePlayer");
 
         // World type
         register(WorldType.INSTANCE, "world");
@@ -169,5 +173,57 @@ public final class ArgumentTypeRegistry {
     @NotNull
     public static <E extends Enum<E>> EnumType<E> enumType(@NotNull Class<E> enumClass) {
         return EnumType.of(enumClass);
+    }
+
+    // ========== Plugin-Scoped Methods ==========
+
+    /**
+     * Registers an argument type for a specific plugin.
+     *
+     * <p>
+     * Plugin-scoped types take precedence over global types during resolution.
+     * </p>
+     *
+     * @param owner Plugin that owns this type
+     * @param name  Type name (case-insensitive)
+     * @param type  The argument type implementation
+     * @param <T>   The parsed type
+     */
+    public <T> void registerForPlugin(@NotNull Plugin owner, @NotNull String name, @NotNull ArgumentType<T> type) {
+        pluginTypes.computeIfAbsent(owner, k -> new ConcurrentHashMap<>())
+                .put(name.toLowerCase(Locale.ROOT), type);
+    }
+
+    /**
+     * Gets an argument type, checking plugin scope first then global.
+     *
+     * @param owner Plugin context for resolution
+     * @param name  Type name (case-insensitive)
+     * @return The argument type, or null if not found
+     */
+    @Nullable
+    public ArgumentType<?> getForPlugin(@NotNull Plugin owner, @NotNull String name) {
+        String lowerName = name.toLowerCase(Locale.ROOT);
+        // Check plugin scope first
+        Map<String, ArgumentType<?>> pluginMap = pluginTypes.get(owner);
+        if (pluginMap != null) {
+            ArgumentType<?> pluginType = pluginMap.get(lowerName);
+            if (pluginType != null) {
+                return pluginType;
+            }
+        }
+        // Fall back to global
+        return types.get(lowerName);
+    }
+
+    /**
+     * Unregisters all argument types for a specific plugin.
+     *
+     * @param owner Plugin to unregister types for
+     * @return Number of types unregistered
+     */
+    public int unregisterAllForPlugin(@NotNull Plugin owner) {
+        Map<String, ArgumentType<?>> removed = pluginTypes.remove(owner);
+        return removed != null ? removed.size() : 0;
     }
 }

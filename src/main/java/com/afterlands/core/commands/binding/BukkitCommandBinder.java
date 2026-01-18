@@ -19,23 +19,30 @@ import java.util.logging.Logger;
 /**
  * Handles binding commands to the Bukkit CommandMap.
  *
- * <p>This class manages the low-level integration with Bukkit's command system,
- * including:</p>
+ * <p>
+ * This class manages the low-level integration with Bukkit's command system,
+ * including:
+ * </p>
  * <ul>
- *   <li>Dynamic registration without plugin.yml</li>
- *   <li>Alias management and conflict resolution</li>
- *   <li>Clean unregistration with knownCommands cleanup</li>
- *   <li>Graceful degradation if CommandMap is inaccessible</li>
+ * <li>Dynamic registration without plugin.yml</li>
+ * <li>Alias management and conflict resolution</li>
+ * <li>Clean unregistration with knownCommands cleanup</li>
+ * <li>Graceful degradation if CommandMap is inaccessible</li>
  * </ul>
  *
- * <p>Conflict Policy:</p>
+ * <p>
+ * Conflict Policy:
+ * </p>
  * <ul>
- *   <li>If a command name is taken, register as pluginName:command</li>
- *   <li>Log warnings for conflicts but don't fail</li>
- *   <li>Always register the prefixed version as fallback</li>
+ * <li>If a command name is taken, register as pluginName:command</li>
+ * <li>Log warnings for conflicts but don't fail</li>
+ * <li>Always register the prefixed version as fallback</li>
  * </ul>
  *
- * <p>Thread Safety: This class is thread-safe. All CommandMap access is synchronized.</p>
+ * <p>
+ * Thread Safety: This class is thread-safe. All CommandMap access is
+ * synchronized.
+ * </p>
  */
 public final class BukkitCommandBinder {
 
@@ -68,8 +75,8 @@ public final class BukkitCommandBinder {
      * @param debug             Whether debug logging is enabled
      */
     public BukkitCommandBinder(@NotNull Plugin corePlugin,
-                                @NotNull CommandDispatcherFactory dispatcherFactory,
-                                boolean debug) {
+            @NotNull CommandDispatcherFactory dispatcherFactory,
+            boolean debug) {
         this.corePlugin = Objects.requireNonNull(corePlugin, "corePlugin");
         this.logger = corePlugin.getLogger();
         this.dispatcherFactory = Objects.requireNonNull(dispatcherFactory, "dispatcherFactory");
@@ -100,8 +107,7 @@ public final class BukkitCommandBinder {
                     root.usage() != null ? root.usage() : "/" + root.name(),
                     root.aliases().stream().toList(),
                     root.owner(),
-                    dispatcherFactory.create(root)
-            );
+                    dispatcherFactory.create(root));
 
             // Register primary name
             boolean primaryRegistered = registerCommand(root.name(), command, root.owner());
@@ -215,7 +221,8 @@ public final class BukkitCommandBinder {
 
         } catch (NoSuchFieldException | IllegalAccessException | SecurityException e) {
             commandMapAvailable = false;
-            logger.log(Level.WARNING, "[Commands] Could not access CommandMap. Dynamic command registration disabled.", e);
+            logger.log(Level.WARNING, "[Commands] Could not access CommandMap. Dynamic command registration disabled.",
+                    e);
         }
     }
 
@@ -253,6 +260,72 @@ public final class BukkitCommandBinder {
         if (existing instanceof DynamicRootCommand) {
             knownCommands.remove(lowerName);
         }
+    }
+
+    // ========== Dynamic Alias Management ==========
+
+    /**
+     * Adds a runtime alias to an existing command.
+     *
+     * @param commandName The existing command name
+     * @param alias       The new alias to add
+     * @return true if alias was added successfully
+     */
+    public boolean addAlias(@NotNull String commandName, @NotNull String alias) {
+        if (knownCommands == null) {
+            return false;
+        }
+
+        String lowerCommand = commandName.toLowerCase();
+        String lowerAlias = alias.toLowerCase();
+
+        // Find the existing command
+        Command existing = knownCommands.get(lowerCommand);
+        if (!(existing instanceof DynamicRootCommand dynamicCmd)) {
+            return false;
+        }
+
+        // Check if alias is already taken
+        if (knownCommands.containsKey(lowerAlias)) {
+            return false;
+        }
+
+        // Register the alias
+        knownCommands.put(lowerAlias, existing);
+
+        if (debug) {
+            logger.info("[Commands] Added alias '" + alias + "' for /" + commandName);
+        }
+
+        return true;
+    }
+
+    /**
+     * Removes a runtime alias from a command.
+     *
+     * @param alias The alias to remove
+     * @return true if alias was removed successfully
+     */
+    public boolean removeAlias(@NotNull String alias) {
+        if (knownCommands == null) {
+            return false;
+        }
+
+        String lowerAlias = alias.toLowerCase();
+        Command existing = knownCommands.get(lowerAlias);
+
+        // Only remove if it's our command and not the primary name
+        if (existing instanceof DynamicRootCommand) {
+            knownCommands.remove(lowerAlias);
+
+            if (debug) {
+                logger.info("[Commands] Removed alias '" + alias + "'");
+            }
+
+            return true;
+        }
+
+        return false;
     }
 
     /**

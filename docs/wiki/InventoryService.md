@@ -11,11 +11,13 @@ O Inventory Framework do AfterCore é um sistema completo de GUI (1.8.8) baseado
 - drag-and-drop com anti-dupe
 - inventários compartilhados (sessões)
 - persistência em DB (save/load)
+- variants system (itens condicionais)
+- extended actions (conditions/success/fail)
 - integração opcional com PlaceholderAPI e ProtocolLib
 
 ### API principal (alto nível)
 
-- `openInventory(Player, inventoryId, InventoryContext)`
+- `openInventory(Player, plugin, inventoryId, InventoryContext)`
 - `openSharedInventory(Player, inventoryId, sessionId, InventoryContext)`
 - `Optional<InventoryState> getState(UUID playerId)`
 - `refreshInventory(Player)`

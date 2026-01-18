@@ -167,6 +167,34 @@ public class NBTItemBuilder {
     }
 
     /**
+     * Define CustomModelData para suporte a resource packs (1.14+).
+     *
+     * <p>
+     * CustomModelData é usado para selecionar modelos customizados
+     * definidos em resource packs via predicates.
+     * </p>
+     *
+     * @param customModelData Valor numérico do CustomModelData
+     * @return this para chaining
+     */
+    @NotNull
+    public NBTItemBuilder setCustomModelData(int customModelData) {
+        if (!NBTAPI_AVAILABLE) {
+            return this;
+        }
+
+        try {
+            NBT.modify(item, nbt -> {
+                nbt.setInteger("CustomModelData", customModelData);
+            });
+        } catch (Exception e) {
+            LOGGER.log(Level.WARNING, "Failed to set CustomModelData: " + customModelData, e);
+        }
+
+        return this;
+    }
+
+    /**
      * Aplica textura de skull via base64, player ou self.
      *
      * <p>

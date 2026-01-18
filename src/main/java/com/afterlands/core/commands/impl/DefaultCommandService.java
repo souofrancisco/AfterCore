@@ -98,9 +98,12 @@ public final class DefaultCommandService implements CommandService {
         // Initialize the shared command graph
         CommandGraph graph = new CommandGraph();
 
+        // Initialize cooldown service for rate limiting
+        com.afterlands.core.util.ratelimit.CooldownService cooldownService = new com.afterlands.core.util.ratelimit.CooldownService();
+
         // Initialize dispatcher factory with graph access
         DefaultCommandDispatcher.Factory dispatcherFactory = new DefaultCommandDispatcher.Factory(
-                messageFacade, scheduler, metrics, logger, debug, graph, config.messages());
+                messageFacade, scheduler, metrics, logger, debug, graph, config.messages(), cooldownService);
 
         // Initialize binder
         this.binder = new BukkitCommandBinder(corePlugin, dispatcherFactory, debug);
@@ -209,6 +212,7 @@ public final class DefaultCommandService implements CommandService {
     @Override
     public int unregisterAll(@NotNull Plugin owner) {
         Objects.requireNonNull(owner, "owner");
+        typeRegistry.unregisterAllForPlugin(owner);
         return registry.unregisterAll(owner);
     }
 
@@ -227,5 +231,33 @@ public final class DefaultCommandService implements CommandService {
     @Override
     public boolean isRegistered(@NotNull String nameOrAlias) {
         return registry.isRegistered(nameOrAlias);
+    }
+
+    @Override
+    @NotNull
+    public ArgumentTypeRegistry argumentTypes() {
+        return typeRegistry;
+    }
+
+    // ========== Dynamic Alias Management ==========
+
+    @Override
+    public boolean addAlias(@NotNull String commandName, @NotNull String alias) {
+        return binder.addAlias(commandName, alias);
+    }
+
+    @Override
+    public boolean removeAlias(@NotNull String alias) {
+        return binder.removeAlias(alias);
+    }
+
+    @Override
+    @NotNull
+    public java.util.Set<String> getAliases(@NotNull String commandName) {
+        var root = registry.graph().getRoot(commandName);
+        if (root == null) {
+            return java.util.Set.of();
+        }
+        return java.util.Set.copyOf(root.aliases());
     }
 }

@@ -9,7 +9,9 @@ import java.util.List;
 /**
  * Argument type for integer values.
  *
- * <p>Supports optional min/max bounds validation.</p>
+ * <p>
+ * Supports optional min/max bounds validation.
+ * </p>
  */
 public final class IntegerType implements ArgumentType<Integer> {
 
@@ -77,15 +79,15 @@ public final class IntegerType implements ArgumentType<Integer> {
             int value = Integer.parseInt(input);
 
             if (value < min) {
-                throw new ParseException(input, "must be at least " + min);
+                throw new ParseException(input, "number-out-of-range:" + min + ":" + max);
             }
             if (value > max) {
-                throw new ParseException(input, "must be at most " + max);
+                throw new ParseException(input, "number-out-of-range:" + min + ":" + max);
             }
 
             return value;
         } catch (NumberFormatException e) {
-            throw new ParseException(input, "not a valid integer");
+            throw new ParseException(input, "invalid-number");
         }
     }
 

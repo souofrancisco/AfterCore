@@ -150,6 +150,69 @@ public class InventoryViewHolder implements Listener {
     }
 
     /**
+     * Resolve a variante correta para o item base com base nas condições.
+     *
+     * <p>
+     * Se nenhuma variante for aplicável (ou se o item não tiver variantes),
+     * retorna o próprio item base.
+     * </p>
+     *
+     * @param item Item base
+     * @return Item resolvido (base ou variante)
+     */
+    @NotNull
+    private GuiItem resolveVariant(@NotNull GuiItem item) {
+        if (!item.hasVariants()) {
+            return item;
+        }
+
+        // 1. Tentar inline variants
+        for (GuiItem variant : item.getInlineVariants()) {
+            if (areConditionsMet(variant.getViewConditions())) {
+                return variant;
+            }
+        }
+
+        // 2. Tentar variants por referência
+        for (String ref : item.getVariantRefs()) {
+            GuiItem variant = config.variantItems().get(ref);
+            if (variant != null) {
+                if (areConditionsMet(variant.getViewConditions())) {
+                    return variant;
+                }
+            } else {
+                // Log warning if variant not found?
+                if (plugin.getConfig().getBoolean("debug", false)) {
+                    plugin.getLogger().warning("[ViewHolder] Variant ref not found: " + ref);
+                }
+            }
+        }
+
+        // Fallback: retorna o item base
+        return item;
+    }
+
+    /**
+     * Avalia lista de condições de visualização.
+     *
+     * @param conditions Lista de condições
+     * @return true se todas forem satisfeitas (ou lista vazia)
+     */
+    private boolean areConditionsMet(@NotNull List<String> conditions) {
+        if (conditions.isEmpty()) {
+            return true;
+        }
+
+        ConditionContext conditionContext = java.util.Collections::emptyMap;
+        for (String condition : conditions) {
+            if (!conditionService.evaluateSync(player, condition, conditionContext)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /**
      * Renderiza todos os itens no inventário.
      *
      * <p>
@@ -192,7 +255,10 @@ public class InventoryViewHolder implements Listener {
         // Track filler items with duplicate: all for later processing
         GuiItem fillerItem = null;
 
-        for (GuiItem guiItem : config.items()) {
+        for (GuiItem rawItem : config.items()) {
+            // Resolver variants (alternativas baseadas em condição)
+            GuiItem guiItem = resolveVariant(rawItem);
+
             // Special handling: conditionally hide navigation items if not needed
             // This allows defining them in YAML but having them disappear when invalid
             if (config.pagination() != null) {
@@ -213,14 +279,15 @@ public class InventoryViewHolder implements Listener {
                 }
             }
 
-            // Check for duplicate: all marker (-1 in duplicateSlots)
-            List<Integer> dupSlots = guiItem.getDuplicateSlots();
+            // Check for duplicate: all marker (-1 in duplicateSlots) using RAW item for
+            // positioning
+            List<Integer> dupSlots = rawItem.getDuplicateSlots();
             if (!dupSlots.isEmpty() && dupSlots.get(0) == -1) {
                 // This is a filler item with duplicate: all
                 fillerItem = guiItem;
-                itemsToRender.put(guiItem.getSlot(), guiItem);
+                itemsToRender.put(rawItem.getSlot(), guiItem);
             } else {
-                itemsToRender.put(guiItem.getSlot(), guiItem);
+                itemsToRender.put(rawItem.getSlot(), guiItem);
                 // Handle explicit duplicate slots
                 for (int dupSlot : dupSlots) {
                     itemsToRender.put(dupSlot, guiItem);
@@ -229,12 +296,13 @@ public class InventoryViewHolder implements Listener {
 
             // DEBUG: Log each item
             if (debug) {
-                plugin.getLogger().info("[ViewHolder] DEBUG: Item at slot " + guiItem.getSlot()
+                plugin.getLogger().info("[ViewHolder] DEBUG: Item at slot " + rawItem.getSlot()
                         + " - type=" + guiItem.getType()
                         + ", material=" + guiItem.getMaterial()
                         + ", actions=" + guiItem.getActions().size()
                         + ", hasClickHandlers=" + guiItem.hasClickHandlers()
-                        + ", duplicate=" + (dupSlots.isEmpty() ? "none" : (dupSlots.get(0) == -1 ? "all" : dupSlots)));
+                        + ", duplicate=" + (dupSlots.isEmpty() ? "none" : (dupSlots.get(0) == -1 ? "all" : dupSlots))
+                        + ", variant=" + (guiItem != rawItem));
             }
         }
 

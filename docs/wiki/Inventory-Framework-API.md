@@ -20,8 +20,11 @@ Interface principal para gerenciamento de inventários.
 
 ```java
 public interface InventoryService {
-    // Abrir inventário
+    // Abrir inventário (do plugin AfterCore)
     void openInventory(Player player, String inventoryId, InventoryContext context);
+    
+    // Abrir inventário de outro plugin
+    void openInventory(Player player, Plugin plugin, String inventoryId, InventoryContext context);
 
     // Abrir inventário compartilhado
     void openSharedInventory(Player player, String inventoryId, String sessionId, InventoryContext context);
@@ -39,8 +42,14 @@ public interface InventoryService {
     // Shared inventory
     Optional<SharedInventoryContext> getSharedContext(String sessionId);
     void broadcastUpdate(String sessionId, int slot, ItemStack item);
+    
+    // Carregar inventários de outro plugin
+    void loadFromPlugin(Plugin plugin);
 }
 ```
+
+> **Nota**: `openInventory(Player, Plugin, inventoryId, context)` permite abrir inventários definidos
+> em outros plugins que usam AfterCore. O plugin deve ter chamado `loadFromPlugin()` previamente.
 
 ### InventoryContext
 
@@ -88,12 +97,32 @@ state.ifPresent(s -> {
 ```yaml
 config-version: 1
 
+# Itens reutilizáveis (herança via item:refName)
+default-items:
+  filler:
+    material: STAINED_GLASS_PANE
+    data: 15
+    name: " "
+    hide-flags: true
+  
+  back-button:
+    material: ARROW
+    name: "&cVoltar"
+    actions:
+      - "previous_panel"
+
 inventories:
   inventory_id:
     title: "&aTitle"
     size: 54
 
-    items: []
+    items:
+      "0-8":
+        material: "item:filler"  # Referência ao default-item
+      "49":
+        material: "item:back-button"
+        name: "&e← Voltar"  # Override do nome
+    
     animations: []
     pagination: {}
     tabs: {}
@@ -101,45 +130,179 @@ inventories:
     persistence: {}
 ```
 
+### registerTypeHandler (Java API)
+
+Registrar handlers programáticos para tipos de item:
+
+```java
+// Registrar handler para itens com type: "pagination_item"
+inventoryService.registerTypeHandler("pagination_item", ctx -> {
+    Player player = ctx.player();
+    GuiItem item = ctx.item();
+    
+    // Lógica customizada
+    player.sendMessage("Clicou no item: " + item.getName());
+});
+```
+
+Os type handlers são executados ANTES das actions YAML e bloqueiam a execução das mesmas.
+
 ### GuiItem Schema
 
 ```yaml
 items:
-  - slot: 13              # int ou array [10-16]
-    material: DIAMOND_SWORD
+  "13":                       # Slot ou range: "0-8", "10;11;12"
+    material: DIAMOND_SWORD   # Material ou referência: "item:filler"
     amount: 1
-    display_name: "&cNome"
+    data: 0                   # Durabilidade/data (para heads: 3)
+    name: "&cNome do Item"
     lore:
       - "&7Linha 1"
       - "&7Linha 2"
 
-    # Enchantments
+    # Enchantments (efeito glow simples)
+    enchanted: true           # Adiciona glow (DURABILITY 1)
+    
+    # Enchantments múltiplos com níveis
     enchantments:
-      - type: SHARPNESS
-        level: 5
+      SHARPNESS: 5
+      FIRE_ASPECT: 2
+      UNBREAKING: 3
+
+    # Custom Model Data (para resource packs 1.14+)
+    custom-model-data: 100001
 
     # Flags
-    item_flags: [HIDE_ATTRIBUTES, HIDE_ENCHANTS]
-
-    # Glow
-    glow: true
-
+    hide-flags: true          # Esconde todos os item flags
+    
     # Skull (player heads)
-    skull_owner: "Notch"      # player name
-    skull_texture: "base64..."  # texture
-    skull_owner: "self"       # usar player que abriu
+    head: "self"              # Player que abriu
+    head: "player:Notch"      # Player específico
+    head: "base64:eyJ..."     # Textura base64
 
-    # NBT custom
+    # NBT customizado
     nbt:
+      afnbt_model: "sword_epic"
       custom_tag: "value"
-      numeric_tag: 123
 
-    # Actions
-    click_actions:
-      - "sound: CLICK"
-      - "console: give %player% diamond 1"
+    # Actions (default para qualquer click)
+    actions:
+      - "sound:CLICK"
+      - "console:give %player% diamond 1"
+      
+    # Actions por tipo de click
+    on_left_click:
+      - "message:&aClique esquerdo!"
+    on_right_click:
+      - "open_panel:outro_menu"
+    on_shift_left_click:
+      - "command:buy item"
+    on_shift_right_click:
+      - "close_panel"
+    on_middle_click:
+      - "message:&7Clique do meio"
+    on_drop:
+      - "message:&cNão pode dropar!"
+    on_number_key:
+      - "message:&eTecla numérica"
 
-    close_on_click: false
+    # Conditions (v1.3.0+)
+    view-conditions:          # Se falhar, item não é renderizado
+      - "permission:admin.view"
+      - "placeholder:{player_level} >= 10"
+    click-conditions:         # Se falhar, click é bloqueado
+      - "permission:admin.click"
+      - "placeholder:{player_money} >= 100"
+
+    # Dynamic placeholders (lista de placeholders que invalidam cache)
+    dynamic-placeholders:
+      - "%player_money%"
+      - "%player_level%"
+      
+    # Cache
+    cacheable: true           # false para itens dinâmicos
+    
+    # Drag
+    allow-drag: false
+    drag-action: "swap"
+
+    # Duplicação
+    duplicate: "all"          # Preenche todos slots vazios
+    duplicate: "36-44"        # Duplica para slots específicos
+```
+
+### Variants & Conditional Items (v1.3.0+)
+
+O sistema de Variants permite definir múltiplas configurações para o mesmo item/slot, selecionadas dinamicamente com base em condições.
+
+#### 1. Inline Variants
+
+Variantes definidas diretamente no item (prioridade alta).
+
+```yaml
+items:
+  "13":
+    material: STONE
+    name: "&7Default Item"
+    
+    # Variante 0 (maior prioridade)
+    variant0:
+      material: DIAMOND
+      view-conditions:
+        - "placeholder:%player_level% >= 50"
+      
+    # Variante 1
+    variant1:
+      material: GOLD_INGOT
+      view-conditions:
+        - "placeholder:%player_level% >= 20"
+```
+
+#### 2. Variant Items (Templates)
+
+Definidos em uma seção separada `variant-items` e referenciados.
+
+```yaml
+variant-items:
+  vip_sword:
+    material: DIAMOND_SWORD
+    name: "&bEspada VIP"
+    view-conditions:
+      - "permission:vip"
+
+items:
+  "13":
+    material: WOODEN_SWORD
+    variants:
+      - "vip_sword"  # Procura em variant-items
+```
+
+### Extended Actions (v1.3.0+)
+
+Actions agora suportam lógica condicional com ramos de sucesso e falha.
+
+```yaml
+items:
+  "13":
+    material: CHEST
+    on_left_click:
+      # Condições para executar a action (Single string ou List)
+      conditions: 
+        - "%player_money% >= 100"
+      
+      # Executado se condições forem verdadeiras
+      success:
+        - "console: eco take %player% 100"
+        - "message: &aCompra realizada!"
+      
+      # Executado se condições forem falsas
+      fail:
+        - "message: &cDinheiro insuficiente!"
+        - "sound: BLOCK_ANVIL_LAND"
+    
+    # Sintaxe legada ainda funciona
+    on_right_click:
+      - "message: &7Click normal"
 ```
 
 ### Animation Schema
@@ -353,6 +516,56 @@ Broadcast centralizado.
 
 ```yaml
 - "global_centered_message: &c&lEvento iniciado!"
+```
+
+---
+
+## Navigation Actions (Inventory-Specific)
+
+Actions específicas para navegação entre painéis e paginação.
+
+### switch_tab
+
+Muda para outra tab.
+
+```yaml
+- "switch_tab:weapons"
+- "switch_tab:armor"
+```
+
+### next_page / prev_page
+
+Navega entre páginas (paginação).
+
+```yaml
+- "next_page"
+- "prev_page"
+```
+
+### open_panel
+
+Abre outro painel (preserva histórico de navegação).
+
+```yaml
+- "open_panel:shop"
+- "open:confirm_purchase"
+```
+
+### previous_panel / back
+
+Volta para o painel anterior (usa histórico de navegação).
+
+```yaml
+- "previous_panel"
+- "back"
+```
+
+### refresh
+
+Atualiza o inventário atual.
+
+```yaml
+- "refresh"
 ```
 
 ### close

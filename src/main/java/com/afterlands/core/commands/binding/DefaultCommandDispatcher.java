@@ -15,10 +15,13 @@ import com.afterlands.core.commands.registry.nodes.RootNode;
 import com.afterlands.core.commands.registry.nodes.SubNode;
 import com.afterlands.core.concurrent.SchedulerService;
 import com.afterlands.core.metrics.MetricsService;
+import com.afterlands.core.util.ratelimit.CooldownService;
+import com.afterlands.core.util.ratelimit.RateLimiter;
 import org.bukkit.command.CommandSender;
 import org.bukkit.entity.Player;
 import org.jetbrains.annotations.NotNull;
 
+import java.time.Duration;
 import java.util.*;
 import java.util.logging.Level;
 import java.util.logging.Logger;
@@ -53,6 +56,7 @@ public final class DefaultCommandDispatcher implements CommandDispatcher {
     private static final String METRIC_EXEC_TOTAL = "acore.cmd.exec.total";
     private static final String METRIC_EXEC_FAIL = "acore.cmd.exec.fail";
     private static final String METRIC_EXEC_NO_PERM = "acore.cmd.exec.noPerm";
+    private static final String METRIC_EXEC_COOLDOWN = "acore.cmd.exec.cooldown";
     private static final String METRIC_EXEC_MS = "acore.cmd.exec.ms";
     private static final String METRIC_TAB_TOTAL = "acore.cmd.tab.total";
     private static final String METRIC_TAB_MS = "acore.cmd.complete.ms";
@@ -66,6 +70,7 @@ public final class DefaultCommandDispatcher implements CommandDispatcher {
     private final ArgumentParser argumentParser;
     private final TabCompleter tabCompleter;
     private final HelpFormatter helpFormatter;
+    private final CooldownService cooldownService;
 
     /**
      * Creates a new DefaultCommandDispatcher.
@@ -88,7 +93,8 @@ public final class DefaultCommandDispatcher implements CommandDispatcher {
             boolean debug,
             @NotNull ArgumentParser argumentParser,
             @NotNull TabCompleter tabCompleter,
-            @NotNull HelpFormatter helpFormatter) {
+            @NotNull HelpFormatter helpFormatter,
+            @NotNull CooldownService cooldownService) {
         this.root = Objects.requireNonNull(root, "root");
         this.messages = Objects.requireNonNull(messages, "messages");
         this.scheduler = Objects.requireNonNull(scheduler, "scheduler");
@@ -98,6 +104,7 @@ public final class DefaultCommandDispatcher implements CommandDispatcher {
         this.argumentParser = Objects.requireNonNull(argumentParser, "argumentParser");
         this.tabCompleter = Objects.requireNonNull(tabCompleter, "tabCompleter");
         this.helpFormatter = Objects.requireNonNull(helpFormatter, "helpFormatter");
+        this.cooldownService = Objects.requireNonNull(cooldownService, "cooldownService");
     }
 
     @Override
@@ -218,6 +225,30 @@ public final class DefaultCommandDispatcher implements CommandDispatcher {
         }
 
         // Node is executable - proceed to execute (even if it has children)
+
+        // Check cooldown for subcommands (only affects players)
+        if (sender instanceof Player player && targetNode instanceof SubNode subNode) {
+            Duration cd = subNode.cooldown();
+            if (cd != null && !cd.isZero()) {
+                // Check bypass permission
+                String bypassPerm = subNode.cooldownBypassPermission();
+                if (bypassPerm == null || !player.hasPermission(bypassPerm)) {
+                    String actionKey = "command:" + fullPath;
+                    RateLimiter.AcquireResult result = cooldownService.tryAcquireWithRemaining(player, actionKey, cd);
+                    if (!result.allowed()) {
+                        metrics.increment(METRIC_EXEC_COOLDOWN);
+                        String remainingTime = CooldownService.formatDuration(result.remaining());
+                        String msgKey = subNode.cooldownMessage();
+                        if (msgKey == null || msgKey.isEmpty()) {
+                            msgKey = "commands.cooldown";
+                        }
+                        messages.send(sender, msgKey, "remaining", remainingTime, "command", fullPath);
+                        return true;
+                    }
+                }
+            }
+        }
+
         try {
             CommandContext context = buildContext(sender, label, remaining, targetNode, fullPath);
             targetNode.executor().execute(context);
@@ -233,9 +264,33 @@ public final class DefaultCommandDispatcher implements CommandDispatcher {
                     messages.send(sender, "commands.usage", "usage", usage);
                 }
                 case INVALID_VALUE -> {
-                    messages.send(sender, "commands.errors.invalid-argument",
-                            "argument", parseEx.argumentName(),
-                            "reason", parseEx.getMessage());
+                    String reason = parseEx.getMessage();
+                    String value = extractValue(reason);
+
+                    // Check for specific error message keys
+                    if (reason != null && reason.contains("player-not-online")) {
+                        messages.send(sender, "commands.errors.player-not-online", "player", value);
+                    } else if (reason != null && reason.contains("player-never-joined")) {
+                        messages.send(sender, "commands.errors.player-never-joined", "player", value);
+                    } else if (reason != null && reason.contains("invalid-number")) {
+                        messages.send(sender, "commands.errors.invalid-number", "value", value);
+                    } else if (reason != null && reason.startsWith("number-out-of-range:")) {
+                        // Format: number-out-of-range:min:max
+                        String[] parts = reason.split(":");
+                        String min = parts.length > 1 ? parts[1] : "?";
+                        String max = parts.length > 2 ? parts[2] : "?";
+                        messages.send(sender, "commands.errors.number-out-of-range", "min", min, "max", max);
+                    } else if (reason != null && reason.contains("world-not-found")) {
+                        messages.send(sender, "commands.errors.world-not-found", "world", value);
+                    } else if (reason != null && reason.startsWith("invalid-enum:")) {
+                        // Format: invalid-enum:option1, option2, option3
+                        String options = reason.substring("invalid-enum:".length());
+                        messages.send(sender, "commands.errors.invalid-enum", "value", value, "options", options);
+                    } else {
+                        messages.send(sender, "commands.errors.invalid-argument",
+                                "argument", parseEx.argumentName(),
+                                "reason", reason);
+                    }
                     messages.send(sender, "commands.usage", "usage", usage);
                 }
                 case TOO_MANY_ARGS -> {
@@ -367,6 +422,21 @@ public final class DefaultCommandDispatcher implements CommandDispatcher {
         messages.send(sender, "commands.help.hint", "command", "/" + path + " help");
     }
 
+    /**
+     * Extracts value from error message format "Invalid argument 'VALUE': reason".
+     */
+    private String extractValue(String errorMessage) {
+        // Try to extract from "Invalid argument 'VALUE': ..."
+        if (errorMessage != null && errorMessage.contains("'")) {
+            int start = errorMessage.indexOf("'");
+            int end = errorMessage.indexOf("'", start + 1);
+            if (start >= 0 && end > start) {
+                return errorMessage.substring(start + 1, end);
+            }
+        }
+        return "?";
+    }
+
     private CommandContext buildContext(CommandSender sender, String label, List<String> remaining,
             CommandNode targetNode, String fullPath) throws CommandParseException {
         List<com.afterlands.core.commands.CommandSpec.ArgumentSpec> argSpecs = targetNode.arguments();
@@ -427,6 +497,7 @@ public final class DefaultCommandDispatcher implements CommandDispatcher {
         private final CommandGraph graph;
         private final CompletionCache completionCache;
         private final org.bukkit.configuration.file.FileConfiguration config;
+        private final CooldownService cooldownService;
 
         public Factory(@NotNull MessageFacade messages,
                 @NotNull SchedulerService scheduler,
@@ -434,7 +505,8 @@ public final class DefaultCommandDispatcher implements CommandDispatcher {
                 @NotNull Logger logger,
                 boolean debug,
                 @NotNull CommandGraph graph,
-                @NotNull org.bukkit.configuration.file.FileConfiguration config) {
+                @NotNull org.bukkit.configuration.file.FileConfiguration config,
+                @NotNull CooldownService cooldownService) {
             this.messages = messages;
             this.scheduler = scheduler;
             this.metrics = metrics;
@@ -442,6 +514,7 @@ public final class DefaultCommandDispatcher implements CommandDispatcher {
             this.debug = debug;
             this.graph = graph;
             this.config = config;
+            this.cooldownService = cooldownService;
             this.argumentParser = new ArgumentParser(ArgumentTypeRegistry.instance());
             this.completionCache = CompletionCache.builder()
                     .ttl(2, java.util.concurrent.TimeUnit.SECONDS)
@@ -462,7 +535,7 @@ public final class DefaultCommandDispatcher implements CommandDispatcher {
 
             return new DefaultCommandDispatcher(
                     root, messages, scheduler, metrics, logger, debug,
-                    argumentParser, tabCompleter, helpFormatter);
+                    argumentParser, tabCompleter, helpFormatter, cooldownService);
         }
     }
 }

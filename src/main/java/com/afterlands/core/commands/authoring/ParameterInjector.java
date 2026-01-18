@@ -124,7 +124,9 @@ public final class ParameterInjector {
             Arg arg = param.getAnnotation(Arg.class);
             String name = arg.value().isEmpty() ? param.getName() : arg.value();
             String defaultValue = arg.defaultValue().isEmpty() ? null : arg.defaultValue();
-            return ParameterExtractor.argument(name, type, defaultValue, typeRegistry);
+            boolean isNone = Arg.NONE.equals(defaultValue);
+            boolean optional = arg.optional() || (defaultValue != null && !isNone);
+            return ParameterExtractor.argument(name, type, defaultValue, optional, typeRegistry);
         }
 
         // @Flag annotation
@@ -213,11 +215,11 @@ public final class ParameterInjector {
         }
 
         static ParameterExtractor argument(String name, Class<?> type, String defaultValue,
-                ArgumentTypeRegistry typeRegistry) {
+                boolean optional, ArgumentTypeRegistry typeRegistry) {
             return ctx -> {
                 Object value = ctx.args().get(name);
 
-                if (value == null && defaultValue != null) {
+                if (value == null && defaultValue != null && !Arg.NONE.equals(defaultValue)) {
                     // Parse default value
                     ArgumentType<?> argType = inferType(type, typeRegistry);
                     if (argType != null) {
@@ -231,6 +233,10 @@ public final class ParameterInjector {
                 }
 
                 if (value == null) {
+                    // Optional parameter - return null
+                    if (optional) {
+                        return null;
+                    }
                     throw new IllegalArgumentException("Missing required argument: " + name);
                 }
 

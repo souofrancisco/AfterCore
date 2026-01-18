@@ -157,9 +157,25 @@ public class ItemCompiler {
             meta.setLore(resolvedLore);
         }
 
-        // 4. Enchantment glow
+        // 4. Enchantment glow (simple glow effect)
         if (item.isEnchanted()) {
             meta.addEnchant(Enchantment.DURABILITY, 1, true);
+        }
+
+        // 4b. Multiple enchantments (from enchantments map)
+        if (!item.getEnchantments().isEmpty()) {
+            for (var entry : item.getEnchantments().entrySet()) {
+                try {
+                    Enchantment ench = Enchantment.getByName(entry.getKey());
+                    if (ench != null) {
+                        meta.addEnchant(ench, entry.getValue(), true);
+                    } else {
+                        logger.warning("Unknown enchantment: " + entry.getKey());
+                    }
+                } catch (Exception e) {
+                    logger.warning("Failed to apply enchantment " + entry.getKey() + ": " + e.getMessage());
+                }
+            }
         }
 
         // 5. Hide flags
@@ -173,6 +189,13 @@ public class ItemCompiler {
         if (!item.getNbtTags().isEmpty()) {
             NBTItemBuilder nbtBuilder = new NBTItemBuilder(itemStack);
             nbtBuilder.setNBT(item.getNbtTags());
+            itemStack = nbtBuilder.build();
+        }
+
+        // 6b. Apply custom model data via NBT (for 1.14+ resource pack support)
+        if (item.getCustomModelData() > 0) {
+            NBTItemBuilder nbtBuilder = new NBTItemBuilder(itemStack);
+            nbtBuilder.setCustomModelData(item.getCustomModelData());
             itemStack = nbtBuilder.build();
         }
 

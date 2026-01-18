@@ -16,6 +16,7 @@ Este documento contém 12 exemplos práticos e prontos para uso do Inventory Fra
 10. [Troubleshooting - Problemas Comuns](#10-troubleshooting---problemas-comuns)
 11. [Dynamic Titles with Placeholders](#11-dynamic-titles-with-placeholders)
 12. [Click Type Handlers - Diferentes Tipos de Click](#12-click-type-handlers---diferentes-tipos-de-click)
+13. [Variants & Extended Actions - Itens Condicionais](#13-variants--extended-actions---itens-condicionais)
 
 ---
 
@@ -1614,3 +1615,93 @@ on_right_click:     # Ver informações
 - Se definir `.onLeftClick(handler)`, actions YAML são ignoradas
 
 ---
+
+## 13. Variants & Extended Actions - Itens Condicionais
+
+### Objetivo
+Criar itens que mudam visualmente com base em condições (ex: desbloqueado/bloqueado) e actions com lógica de sucesso/falha.
+
+### YAML
+```yaml
+config-version: 1
+
+inventories:
+  conditional_menu:
+    title: "&8&lItens Condicionais"
+    size: 27
+
+    # Templates reutilizáveis
+    variant-items:
+      vip_sword:
+        material: DIAMOND_SWORD
+        name: "&bEspada VIP"
+        lore:
+          - "&7Dano: &f10"
+          - "&aExclusivo para VIPs!"
+        enchanted: true
+        view-conditions:
+          - "permission: group.vip"
+        actions:
+          - "console: give %player% diamond_sword 1"
+          - "message: &aEspada resgatada!"
+
+    items:
+      '11':
+        material: WOODEN_SWORD
+        name: "&7Espada Comum"
+        lore:
+          - "&7Dano: &f5"
+          - "&7Upgrade para VIP para melhorar!"
+        
+        # Referência a um template (se condição do template for true, substitui este item)
+        variants:
+          - "vip_sword"
+
+      '15':
+        material: CHEST
+        name: "&6Recompensa Diária"
+        lore:
+          - "&7Clique para resgatar"
+        
+        # Variante Inline (definida direto no item)
+        variant0:
+          material: ENDER_CHEST
+          name: "&aRecompensa (Pronta!)"
+          view-conditions:
+            - "%player_has_reward% == true"
+          
+          # Extended Actions (com conditions/success/fail)
+          on_left_click:
+            conditions:
+              - "%player_empty_slots% >= 1"
+            success:
+              - "console: give %player% diamond 1"
+              - "sound: LEVEL_UP"
+              - "message: &aRecompensa recebida!"
+            fail:
+              - "sound: VILLAGER_NO"
+              - "message: &cEsvazie seu inventário primeiro!"
+```
+
+### Explicação
+
+1. **Variant Items (`variant-items`)**:
+   - Templates definidos no topo do inventário.
+   - Podem ser referenciados por múltiplos itens.
+   - Útil para estados comuns (ex: "unlocked", "completed").
+
+2. **Variants List (`variants`)**:
+   - Lista de chaves de templates.
+   - O framework verifica as condições de cada variante na ordem.
+   - A primeira variante com condições verdadeiras (`view-conditions`) substitui o item base.
+
+3. **Inline Variants (`variant0`, `variant1`...)**:
+   - Definidas diretamente dentro do item.
+   - `variant0` tem prioridade sobre `variant1`, que tem prioridade sobre `variants` (lista).
+
+4. **Extended Actions (`conditions`/`success`/`fail`)**:
+   - Permite lógica complexa sem precisar de código Java.
+   - **conditions**: Lista de condições (AND) ou string única.
+   - **success**: Actions executadas se condições forem true.
+   - **fail**: Actions executadas se condições forem false.
+

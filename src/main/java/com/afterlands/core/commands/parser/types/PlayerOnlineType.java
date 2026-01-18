@@ -12,15 +12,18 @@ import java.util.Locale;
 /**
  * Argument type for online player names.
  *
- * <p>Resolves player names to online Player instances with
+ * <p>
+ * Resolves player names to online Player instances with
  * case-insensitive matching. Provides tab completion for all
- * online players visible to the sender.</p>
+ * online players visible to the sender.
+ * </p>
  */
 public final class PlayerOnlineType implements ArgumentType<Player> {
 
     public static final PlayerOnlineType INSTANCE = new PlayerOnlineType();
 
-    private PlayerOnlineType() {}
+    private PlayerOnlineType() {
+    }
 
     @Override
     @NotNull
@@ -39,7 +42,7 @@ public final class PlayerOnlineType implements ArgumentType<Player> {
             }
         }
 
-        throw new ParseException(input, "player not online");
+        throw new ParseException(input, "player-not-online");
     }
 
     @Override

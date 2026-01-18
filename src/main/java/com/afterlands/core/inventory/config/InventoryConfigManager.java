@@ -2,6 +2,7 @@ package com.afterlands.core.inventory.config;
 
 import com.afterlands.core.config.ConfigService;
 import com.afterlands.core.inventory.InventoryConfig;
+import com.afterlands.core.inventory.action.ConfiguredAction;
 import com.afterlands.core.inventory.animation.AnimationConfig;
 import com.afterlands.core.inventory.click.ClickHandlers;
 import com.afterlands.core.inventory.item.GuiItem;
@@ -280,8 +281,23 @@ public class InventoryConfigManager {
         Map<String, Object> metadata = new HashMap<>();
         metadata.put("raw_section", section);
 
+        // Parse variant-items
+        Map<String, GuiItem> variantItems = new HashMap<>();
+        if (section.contains("variant-items")) {
+            ConfigurationSection variantsSection = section.getConfigurationSection("variant-items");
+            if (variantsSection != null) {
+                for (String key : variantsSection.getKeys(false)) {
+                    ConfigurationSection itemSection = variantsSection.getConfigurationSection(key);
+                    if (itemSection != null) {
+                        // Variants always have slot -1
+                        variantItems.put(key, parseGuiItem(key, -1, itemSection));
+                    }
+                }
+            }
+        }
+
         return new InventoryConfig(id, title, size, items, tabs, pagination, animations, persistence, shared,
-                titleUpdateInterval, metadata);
+                titleUpdateInterval, metadata, variantItems);
     }
 
     /**
@@ -535,40 +551,41 @@ public class InventoryConfigManager {
         }
 
         // Actions por tipo de click
+        // Actions por tipo de click
         if (section.contains("on_left_click")) {
-            clickBuilder.onLeftClick(section.getStringList("on_left_click"));
+            clickBuilder.onLeftClick(parseAction(section, "on_left_click"));
             hasClickHandlers = true;
         }
         if (section.contains("on_right_click")) {
-            clickBuilder.onRightClick(section.getStringList("on_right_click"));
+            clickBuilder.onRightClick(parseAction(section, "on_right_click"));
             hasClickHandlers = true;
         }
         if (section.contains("on_shift_left_click")) {
-            clickBuilder.onShiftLeftClick(section.getStringList("on_shift_left_click"));
+            clickBuilder.onShiftLeftClick(parseAction(section, "on_shift_left_click"));
             hasClickHandlers = true;
         }
         if (section.contains("on_shift_right_click")) {
-            clickBuilder.onShiftRightClick(section.getStringList("on_shift_right_click"));
+            clickBuilder.onShiftRightClick(parseAction(section, "on_shift_right_click"));
             hasClickHandlers = true;
         }
         if (section.contains("on_middle_click")) {
-            clickBuilder.onMiddleClick(section.getStringList("on_middle_click"));
+            clickBuilder.onMiddleClick(parseAction(section, "on_middle_click"));
             hasClickHandlers = true;
         }
         if (section.contains("on_double_click")) {
-            clickBuilder.onDoubleClick(section.getStringList("on_double_click"));
+            clickBuilder.onDoubleClick(parseAction(section, "on_double_click"));
             hasClickHandlers = true;
         }
         if (section.contains("on_drop")) {
-            clickBuilder.onDrop(section.getStringList("on_drop"));
+            clickBuilder.onDrop(parseAction(section, "on_drop"));
             hasClickHandlers = true;
         }
         if (section.contains("on_control_drop")) {
-            clickBuilder.onControlDrop(section.getStringList("on_control_drop"));
+            clickBuilder.onControlDrop(parseAction(section, "on_control_drop"));
             hasClickHandlers = true;
         }
         if (section.contains("on_number_key")) {
-            clickBuilder.onNumberKey(section.getStringList("on_number_key"));
+            clickBuilder.onNumberKey(parseAction(section, "on_number_key"));
             hasClickHandlers = true;
         }
 
@@ -608,6 +625,22 @@ public class InventoryConfigManager {
             builder.nbtTags(nbtTags);
         }
 
+        // Variants (refs)
+        if (section.contains("variants")) {
+            builder.variantRefs(section.getStringList("variants"));
+        }
+
+        // Inline variants (variant0, variant1, etc.)
+        for (String variantKey : section.getKeys(false)) {
+            if (variantKey.startsWith("variant") && variantKey.length() > 7
+                    && Character.isDigit(variantKey.charAt(7))) {
+                ConfigurationSection varSection = section.getConfigurationSection(variantKey);
+                if (varSection != null) {
+                    builder.addInlineVariant(parseGuiItem(variantKey, builder.build().getSlot(), varSection));
+                }
+            }
+        }
+
         // Drag
         builder.allowDrag(section.getBoolean("allow-drag", false));
         builder.dragAction(section.getString("drag-action"));
@@ -629,7 +662,26 @@ public class InventoryConfigManager {
             builder.clickConditions(section.getStringList("click-conditions"));
         }
 
-        // TODO: Parse dynamic placeholders
+        // Parse dynamic placeholders (list of placeholder keys that invalidate cache)
+        if (section.contains("dynamic-placeholders")) {
+            builder.dynamicPlaceholders(section.getStringList("dynamic-placeholders"));
+        }
+
+        // Parse enchantments (map of enchantment name -> level)
+        ConfigurationSection enchSection = section.getConfigurationSection("enchantments");
+        if (enchSection != null) {
+            Map<String, Integer> enchantments = new HashMap<>();
+            for (String enchName : enchSection.getKeys(false)) {
+                int level = enchSection.getInt(enchName, 1);
+                enchantments.put(enchName.toUpperCase(), level);
+            }
+            builder.enchantments(enchantments);
+        }
+
+        // Parse custom-model-data (also check in nbt section for convenience)
+        if (section.contains("custom-model-data")) {
+            builder.customModelData(section.getInt("custom-model-data", -1));
+        }
 
         return builder.build();
     }
@@ -967,6 +1019,44 @@ public class InventoryConfigManager {
         }
 
         return animations;
+    }
+
+    /**
+     * Parse de ConfiguredAction (lista ou objeto complexo).
+     */
+    @NotNull
+    private ConfiguredAction parseAction(@NotNull ConfigurationSection section, @NotNull String key) {
+        if (section.isList(key)) {
+            return ConfiguredAction.simple(section.getStringList(key));
+        }
+
+        if (section.isConfigurationSection(key)) {
+            ConfigurationSection actionSection = section.getConfigurationSection(key);
+            if (actionSection != null) {
+                List<String> conditions = actionSection.getStringList("conditions");
+                List<String> success;
+                List<String> fail;
+
+                // Success actions (can be "success" or "actions")
+                if (actionSection.contains("success")) {
+                    success = actionSection.getStringList("success");
+                } else {
+                    success = actionSection.getStringList("actions");
+                }
+
+                // Fail actions
+                fail = actionSection.getStringList("fail");
+
+                return new ConfiguredAction(conditions, success, fail);
+            }
+        }
+
+        // Single string action
+        if (section.isString(key)) {
+            return ConfiguredAction.simple(List.of(section.getString(key)));
+        }
+
+        return ConfiguredAction.simple(List.of());
     }
 
     /**

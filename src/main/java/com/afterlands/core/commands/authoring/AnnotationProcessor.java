@@ -18,6 +18,7 @@ import java.lang.invoke.MethodHandle;
 import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
 import java.lang.reflect.Parameter;
+import java.time.Duration;
 import java.util.*;
 import java.util.logging.Level;
 import java.util.logging.Logger;
@@ -120,7 +121,33 @@ public final class AnnotationProcessor {
                 continue;
             }
 
-            String subName = subAnnotation.value().toLowerCase(Locale.ROOT);
+            String subValue = subAnnotation.value();
+
+            // Parse pipe syntax: @Subcommand("join|j|joingroup")
+            String[] parts = subValue.split("\\|");
+            String subName = parts[0].toLowerCase(Locale.ROOT).trim();
+            Set<String> subAliases = new LinkedHashSet<>();
+
+            // Add pipe-separated aliases
+            for (int i = 1; i < parts.length; i++) {
+                String alias = parts[i].toLowerCase(Locale.ROOT).trim();
+                if (!alias.isEmpty()) {
+                    subAliases.add(alias);
+                }
+            }
+
+            // Add aliases from @Subcommand(aliases={})
+            for (String alias : subAnnotation.aliases()) {
+                subAliases.add(alias.toLowerCase(Locale.ROOT));
+            }
+
+            // Add aliases from @Alias annotation on method
+            Alias aliasAnn = method.getAnnotation(Alias.class);
+            if (aliasAnn != null) {
+                for (String alias : aliasAnn.value()) {
+                    subAliases.add(alias.toLowerCase(Locale.ROOT));
+                }
+            }
 
             // Extract argument and flag specs from method parameters
             MethodSignature signature = analyzeMethod(method);
@@ -141,11 +168,27 @@ public final class AnnotationProcessor {
                 continue;
             }
 
+            // Extract @Cooldown if present
+            Cooldown cooldownAnn = method.getAnnotation(Cooldown.class);
+            Duration cooldown = cooldownAnn != null
+                    ? Duration.of(cooldownAnn.value(), cooldownAnn.unit().toChronoUnit())
+                    : null;
+            String cooldownMsg = cooldownAnn != null && !cooldownAnn.message().isEmpty()
+                    ? cooldownAnn.message()
+                    : null;
+            String cooldownBypass = cooldownAnn != null && !cooldownAnn.bypassPermission().isEmpty()
+                    ? cooldownAnn.bypassPermission()
+                    : null;
+
             SubNode subNode = SubNode.builder(subName)
+                    .aliases(subAliases)
                     .description(subAnnotation.description().isEmpty() ? null : subAnnotation.description())
                     .usage(subAnnotation.usage().isEmpty() ? null : subAnnotation.usage())
                     .usageHelp(subAnnotation.usageHelp().isEmpty() ? null : subAnnotation.usageHelp())
                     .permission(subPermission)
+                    .cooldown(cooldown)
+                    .cooldownMessage(cooldownMsg)
+                    .cooldownBypassPermission(cooldownBypass)
                     .arguments(signature.arguments)
                     .flags(signature.flags)
                     .executor(executor)
@@ -159,8 +202,22 @@ public final class AnnotationProcessor {
                 ? rootName.toUpperCase(Locale.ROOT)
                 : cmdAnnotation.helpPrefix();
 
+        // Collect all root aliases
+        Set<String> allRootAliases = new LinkedHashSet<>();
+        for (String alias : cmdAnnotation.aliases()) {
+            allRootAliases.add(alias.toLowerCase(Locale.ROOT));
+        }
+
+        // Add aliases from @Alias annotation on class
+        Alias classAliasAnn = handlerClass.getAnnotation(Alias.class);
+        if (classAliasAnn != null) {
+            for (String alias : classAliasAnn.value()) {
+                allRootAliases.add(alias.toLowerCase(Locale.ROOT));
+            }
+        }
+
         return RootNode.builder(owner, rootName)
-                .aliases(cmdAnnotation.aliases())
+                .aliases(allRootAliases.toArray(new String[0]))
                 .permission(rootPermission)
                 .helpPrefix(helpPrefix)
                 .children(children.values())

@@ -290,12 +290,30 @@ public class InventoryActionHandler {
         }
 
         // 2. Executar actions para o tipo de click
-        List<String> actions = handlers.getActions(clickType);
-        if (actions.isEmpty()) {
+        ConfiguredAction configuredAction = handlers.getActions(clickType);
+        List<String> actionsToRun = configuredAction.success();
+
+        // Evaluate conditions if present
+        if (configuredAction.hasConditions()) {
+            ConditionContext conditionContext = java.util.Collections::emptyMap;
+            boolean conditionsMet = true;
+            for (String condition : configuredAction.conditions()) {
+                if (!conditionService.evaluateSync(player, condition, conditionContext)) {
+                    conditionsMet = false;
+                    break;
+                }
+            }
+
+            if (!conditionsMet) {
+                actionsToRun = configuredAction.fail();
+            }
+        }
+
+        if (actionsToRun.isEmpty()) {
             return;
         }
 
-        executeActions(actions, player, context)
+        executeActions(actionsToRun, player, context)
                 .exceptionally(ex -> {
                     logger.log(Level.WARNING, "Failed to execute actions for player " + player.getName(), ex);
                     return null;

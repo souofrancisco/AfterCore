@@ -12,13 +12,16 @@ import java.util.Locale;
 /**
  * Argument type for world names.
  *
- * <p>Resolves world names to World instances with case-insensitive matching.</p>
+ * <p>
+ * Resolves world names to World instances with case-insensitive matching.
+ * </p>
  */
 public final class WorldType implements ArgumentType<World> {
 
     public static final WorldType INSTANCE = new WorldType();
 
-    private WorldType() {}
+    private WorldType() {
+    }
 
     @Override
     @NotNull
@@ -37,7 +40,7 @@ public final class WorldType implements ArgumentType<World> {
             }
         }
 
-        throw new ParseException(input, "world not found");
+        throw new ParseException(input, "world-not-found");
     }
 
     @Override

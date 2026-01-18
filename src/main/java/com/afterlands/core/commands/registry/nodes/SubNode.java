@@ -4,6 +4,7 @@ import com.afterlands.core.commands.CommandSpec;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
+import java.time.Duration;
 import java.util.*;
 
 /**
@@ -30,6 +31,9 @@ public record SubNode(
         @Nullable String usageHelp,
         @Nullable String permission,
         boolean playerOnly,
+        @Nullable Duration cooldown,
+        @Nullable String cooldownMessage,
+        @Nullable String cooldownBypassPermission,
         @NotNull Map<String, SubNode> children,
         @NotNull List<CommandSpec.ArgumentSpec> arguments,
         @NotNull List<CommandSpec.FlagSpec> flags,
@@ -86,6 +90,9 @@ public record SubNode(
                 null, // usageHelp - not available in spec yet
                 spec.permission(),
                 spec.playerOnly(),
+                null, // cooldown - not available in spec yet
+                null, // cooldownMessage
+                null, // cooldownBypassPermission
                 children,
                 spec.arguments(),
                 spec.flags(),
@@ -127,6 +134,9 @@ public record SubNode(
         private String usageHelp;
         private String permission;
         private boolean playerOnly = false;
+        private Duration cooldown;
+        private String cooldownMessage;
+        private String cooldownBypassPermission;
         private final Map<String, SubNode> children = new LinkedHashMap<>();
         private final List<CommandSpec.ArgumentSpec> arguments = new ArrayList<>();
         private final List<CommandSpec.FlagSpec> flags = new ArrayList<>();
@@ -227,10 +237,29 @@ public record SubNode(
         }
 
         @NotNull
+        public Builder cooldown(@Nullable Duration cooldown) {
+            this.cooldown = cooldown;
+            return this;
+        }
+
+        @NotNull
+        public Builder cooldownMessage(@Nullable String cooldownMessage) {
+            this.cooldownMessage = cooldownMessage;
+            return this;
+        }
+
+        @NotNull
+        public Builder cooldownBypassPermission(@Nullable String permission) {
+            this.cooldownBypassPermission = permission;
+            return this;
+        }
+
+        @NotNull
         public SubNode build() {
             return new SubNode(
                     name, aliases, description, usage, usageHelp, permission,
-                    playerOnly, children, arguments, flags, executor);
+                    playerOnly, cooldown, cooldownMessage, cooldownBypassPermission,
+                    children, arguments, flags, executor);
         }
     }
 }

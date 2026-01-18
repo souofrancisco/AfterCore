@@ -9,7 +9,9 @@ import java.util.List;
 /**
  * Argument type for double (decimal) values.
  *
- * <p>Supports optional min/max bounds validation.</p>
+ * <p>
+ * Supports optional min/max bounds validation.
+ * </p>
  */
 public final class DoubleType implements ArgumentType<Double> {
 
@@ -71,15 +73,15 @@ public final class DoubleType implements ArgumentType<Double> {
             }
 
             if (value < min) {
-                throw new ParseException(input, "must be at least " + min);
+                throw new ParseException(input, "number-out-of-range:" + min + ":" + max);
             }
             if (value > max) {
-                throw new ParseException(input, "must be at most " + max);
+                throw new ParseException(input, "number-out-of-range:" + min + ":" + max);
             }
 
             return value;
         } catch (NumberFormatException e) {
-            throw new ParseException(input, "not a valid number");
+            throw new ParseException(input, "invalid-number");
         }
     }
 

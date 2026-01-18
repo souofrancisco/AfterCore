@@ -60,6 +60,10 @@ public class GuiItem {
     private final ClickHandlers clickHandlers;
     private final List<String> viewConditions;
     private final List<String> clickConditions;
+    private final Map<String, Integer> enchantments;
+    private final int customModelData;
+    private final List<String> variantRefs;
+    private final List<GuiItem> inlineVariants;
 
     private GuiItem(Builder builder) {
         this.slot = builder.slot;
@@ -85,6 +89,10 @@ public class GuiItem {
         this.clickHandlers = builder.clickHandlers;
         this.viewConditions = List.copyOf(builder.viewConditions);
         this.clickConditions = List.copyOf(builder.clickConditions);
+        this.enchantments = Map.copyOf(builder.enchantments);
+        this.customModelData = builder.customModelData;
+        this.variantRefs = List.copyOf(builder.variantRefs);
+        this.inlineVariants = List.copyOf(builder.inlineVariants);
     }
 
     /**
@@ -289,6 +297,30 @@ public class GuiItem {
         return clickConditions;
     }
 
+    public Map<String, Integer> getEnchantments() {
+        return enchantments;
+    }
+
+    public int getCustomModelData() {
+        return customModelData;
+    }
+
+    public List<String> getVariantRefs() {
+        return variantRefs;
+    }
+
+    public List<GuiItem> getInlineVariants() {
+        return inlineVariants;
+    }
+
+    public boolean hasVariants() {
+        return !variantRefs.isEmpty() || !inlineVariants.isEmpty();
+    }
+
+    public List<String> getDynamicPlaceholders() {
+        return dynamicPlaceholders;
+    }
+
     /**
      * Obtém os handlers de click configurados.
      *
@@ -354,6 +386,10 @@ public class GuiItem {
         private List<String> clickConditions = new ArrayList<>();
         private ClickHandlers clickHandlers = null;
         private ClickHandlers.Builder clickHandlersBuilder = null;
+        private Map<String, Integer> enchantments = new HashMap<>();
+        private int customModelData = -1;
+        private List<String> variantRefs = new ArrayList<>();
+        private List<GuiItem> inlineVariants = new ArrayList<>();
 
         public Builder slot(int slot) {
             this.slot = slot;
@@ -487,6 +523,41 @@ public class GuiItem {
 
         public Builder clickConditions(List<String> conditions) {
             this.clickConditions = new ArrayList<>(conditions);
+            return this;
+        }
+
+        public Builder enchantments(Map<String, Integer> enchantments) {
+            this.enchantments = new HashMap<>(enchantments);
+            return this;
+        }
+
+        public Builder enchantment(String enchantmentName, int level) {
+            this.enchantments.put(enchantmentName, level);
+            return this;
+        }
+
+        public Builder customModelData(int customModelData) {
+            this.customModelData = customModelData;
+            return this;
+        }
+
+        public Builder variantRefs(List<String> variantRefs) {
+            this.variantRefs = new ArrayList<>(variantRefs);
+            return this;
+        }
+
+        public Builder addVariantRef(String variantRef) {
+            this.variantRefs.add(variantRef);
+            return this;
+        }
+
+        public Builder inlineVariants(List<GuiItem> inlineVariants) {
+            this.inlineVariants = new ArrayList<>(inlineVariants);
+            return this;
+        }
+
+        public Builder addInlineVariant(GuiItem variant) {
+            this.inlineVariants.add(variant);
             return this;
         }
 

@@ -13,6 +13,13 @@ commands:
     missing-argument: "&c✖ Argumento obrigatório faltando: &f{argument}"
     invalid-argument: "&c✖ Argumento inválido &f{argument}&c: &f{reason}"
     too-many-arguments: "&c✖ Argumentos demais ({details})"
+    player-not-online: "&c✖ Jogador &f{player} &cnão está online."
+    player-never-joined: "&c✖ Jogador &f{player} &cnunca entrou no servidor."
+    invalid-number: "&c✖ &f{value} &cnão é um número válido."
+    number-out-of-range: "&c✖ Valor deve estar entre &f{min} &ce &f{max}&c."
+    world-not-found: "&c✖ Mundo &f{world} &cnão existe."
+    invalid-enum: "&c✖ Valor &f{value} &cinválido. Opções: &f{options}"
+  cooldown: "&c✖ Aguarde &f{remaining} &cpara usar esse comando novamente."
   help:
     hint: "&7Use &f{command} &7para ver os subcomandos."
     header:

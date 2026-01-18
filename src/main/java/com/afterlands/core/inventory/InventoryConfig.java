@@ -32,7 +32,8 @@ public record InventoryConfig(
         @NotNull PersistenceConfig persistence,
         boolean shared,
         int titleUpdateInterval, // Intervalo de update do título em ticks (0 = disabled)
-        @NotNull Map<String, Object> metadata) {
+        @NotNull Map<String, Object> metadata,
+        @NotNull Map<String, GuiItem> variantItems) { // New field for variants
 
     /**
      * Construtor compacto com validação.
@@ -64,6 +65,9 @@ public record InventoryConfig(
         }
         if (metadata == null) {
             metadata = Map.of();
+        }
+        if (variantItems == null) {
+            variantItems = Map.of();
         }
     }
 
@@ -130,7 +134,8 @@ public record InventoryConfig(
                 persistence,
                 shared,
                 titleUpdateInterval,
-                metadata);
+                metadata,
+                variantItems);
     }
 
     /**
