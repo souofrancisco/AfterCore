@@ -5,6 +5,117 @@ All notable changes to AfterCore will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.4.3] - 2026-01-22
+
+### Added (Database)
+- **Migration Tracking Table**: Nova tabela `aftercore_schema_migrations` para controle de migrations
+  - Armazena: `migration_id`, `datasource_name`, `applied_at`
+  - Garante que migrations sejam executadas apenas uma vez
+  - Previne erros de re-execução de `ALTER TABLE` em ambientes de desenvolvimento
+
+### Fixed
+- **Late Plugin Loading**: Migrations agora são aplicadas imediatamente se o datasource já estiver inicializado
+  - Corrige cenário onde plugins carregados tardiamente não tinham suas migrations executadas
+- **Migration Idempotency**: Migrations registradas após inicialização do datasource agora são aplicadas corretamente
+
+## [1.4.2] - 2026-01-21
+
+### Added (Command Framework)
+- **Custom Argument Types Support**:
+  - `@Arg(type = "typename")`: atributo `type` para especificar explicitamente o nome do tipo
+  - `TabCompleter` agora resolve tipos registrados por plugins (`ArgumentTypeRegistry.registerForPlugin`)
+  - Permite tab-complete customizado para argumentos `String` (ex: IDs de configs, Enums dinâmicos)
+  - `AnnotationProcessor` atualizado para respeitar o atributo `type`
+
+### Added (Action Service)
+- **Wait Action**: Nova action nativa `wait` (alias `delay`)
+  - Pausa a execução da sequência de actions por X ticks
+  - Exemplo: `wait: 60` (espera 3 segundos)
+  - Implementado via `scheduler.delay()` na execução async
+
+### Fixed
+- **Tab Completion**: Resolvido problema onde tipos customizados não eram encontrados pelo `TabCompleter`
+
+## [1.4.1] - 2026-01-19
+
+### Added (SqlRegistry Multi-Datasource)
+- **Multi-Datasource Support**: `SqlService` agora suporta múltiplos datasources isolados
+  - `SqlDataSource` interface para operações em datasource individual
+  - `HikariSqlDataSource` implementação com pool HikariCP dedicado
+  - Cada datasource tem nome, tipo, pool e migrations próprios
+- **Registry Pattern**: `SqlService` agora é um registry de datasources
+  - `datasource(String name)`: Obtém datasource por nome (fail-fast)
+  - `hasDatasource(String name)`: Verifica se datasource existe
+  - `getDatasourceNames()`: Lista todos os datasources registrados
+  - `getAllPoolStats()`: Estatísticas agregadas de todos os pools
+- **Migrations por Datasource**: 
+  - `registerMigration(dsName, id, migration)`: Registra migration em datasource específico
+  - Migrations são executadas apenas no datasource alvo
+- **API Simplificada**:
+  - `core.sql("analytics")`: Atalho para obter datasource específico
+  - Equivalente a `core.sql().datasource("analytics")`
+
+### Added (Config System)
+- **Robust Config API**: Nova API genérica para updates de configuração
+  - `AfterCore.get().config().update(plugin, filename, options)`
+  - Suporte a registro de migrations via lambda `Consumer<ConfigUpdater>`
+- **Timestamped Backups**: Backups rotacionados com timestamp
+  - Formato: `config.yml.YYYY-MM-DD_HH-mm-ss.bak`
+  - Limite automático de 5 backups por arquivo para economizar espaço
+- **Generic Migrations**: `ConfigUpdater` desacoplado de lógica hardcoded
+  - Plugins externos podem registrar suas próprias regras de migração
+
+### Changed
+- `config.yml` agora suporta seção `datasources` para configurar múltiplos bancos
+- Pool defaults são herdados por todos os datasources (configurável)
+- `config-version` atualizado para 2
+
+### Compatibility
+- **100% Retrocompatível**: Todos os métodos anteriores continuam funcionando
+- Se `datasources` não estiver definido, config raiz é usado como datasource "default"
+- Plugins existentes não precisam de mudanças
+
+### Documentation
+- `SqlService.md` atualizado com seção completa de Multi-Datasource
+- Novos exemplos de configuração e uso
+- Tabelas de API para `SqlService` (registry) e `SqlDataSource` (individual)
+
+## [1.3.1] - 2026-01-18
+
+### Added (Inventory Framework)
+- **Variants System**: Composição condicional de itens
+  - `variant-items` templates reutilizáveis (globais e locais)
+  - `variants: ['id']` referência a templates
+  - Inline `variantN` com prioridade
+  - `view-conditions` dinâmicos por variante
+- **Extended Actions**: Lógica de fluxo no YAML
+  - Suporte a `conditions` (expression string ou lista)
+  - Blocos `success` e `fail` para ramificação de actions
+  - Backward compatibility com listas simples de actions
+
+### Changed
+- `InventoryConfigManager` atualizado para parsear `variant-items` e blocos de ação complexos
+- `GuiItem` agora suporta lista de variantes e resolução dinâmica baseada em contexto
+- `InventoryViewHolder` renderiza variantes baseado em avaliação de condições
+- `InventoryActionHandler` avalia `conditions` antes de executar actions
+
+## [1.3.0] - 2026-01-15
+
+### Added (Command Framework)
+- **Command Framework Enhancements**:
+  - `DynamicCommandAlias`: suporte a aliases registrados em runtime
+  - `@Cooldown`: rate limiting por player/comando
+  - `@Alias`: anotação para múltiplos aliases estáticos
+  - `ArgumentTypeRegistry`: suporte a tipos customizados de argumentos
+- **Error Handling**:
+  - Mensagens de erro de alta prioridade (para comandos críticos)
+  - Melhor tratamento de erros em argumentos de player
+
+### Fixed
+- **Argument Parsing**: Corrigido bug onde argumentos opcionais vazios eram tratados como obrigatórios
+- **Subcommands**: Resolução correta de aliases em subcomandos aninhados
+
+
 ## [1.0.2] - 2026-01-08
 
 ### Added
@@ -238,4 +349,4 @@ Plugins using AfterBlockAnimations can migrate incrementally. See `MIGRATION_GUI
 **Links:**
 - GitHub: https://github.com/AfterLands/AfterCore
 - Issues: https://github.com/AfterLands/AfterCore/issues
-- Wiki: https://wiki.afterlands.com/core
+- Wiki: https://github.com/AfterLands/AfterCore/wiki

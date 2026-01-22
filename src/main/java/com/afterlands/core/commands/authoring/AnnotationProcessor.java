@@ -280,7 +280,9 @@ public final class AnnotationProcessor {
     private CommandSpec.ArgumentSpec extractArgumentSpec(@NotNull Parameter param) {
         Arg arg = param.getAnnotation(Arg.class);
         String name = arg.value().isEmpty() ? param.getName() : arg.value();
-        String typeName = inferTypeName(param.getType());
+
+        // Use custom type if specified, otherwise infer from Java type
+        String typeName = arg.type().isEmpty() ? inferTypeName(param.getType()) : arg.type();
 
         String annotationDefault = arg.defaultValue();
         boolean isNone = Arg.NONE.equals(annotationDefault);

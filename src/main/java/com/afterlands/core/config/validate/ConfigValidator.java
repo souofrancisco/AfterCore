@@ -85,8 +85,40 @@ public final class ConfigValidator {
             return; // Não validar o resto se desabilitado
         }
 
+        // NEW V2 VALIDATION: Check for datasources
+        ConfigurationSection datasources = db.getConfigurationSection("datasources");
+        if (datasources == null) {
+            // Fallback/Legacy check (para não quebrar startups antigos se a migration
+            // falhar)
+            // mas como estamos na V2, se não tiver datasources, é erro se não tiver type
+            // antigo também.
+            // Porém o erro reportado foi na falta de type. Assumimos estrutura V2.
+            // Se não tem datasources, é erro crítico na V2.
+            errors.add(ValidationError.error(basePath + ".datasources", "Seção 'datasources' não encontrada"));
+            return;
+        }
+
+        // Validate 'default' datasource
+        if (!datasources.contains("default")) {
+            errors.add(ValidationError.error(basePath + ".datasources.default",
+                    "Datasource 'default' obrigatório não encontrado"));
+        }
+
+        // Validate all defined datasources
+        for (String dsName : datasources.getKeys(false)) {
+            validateDatasource(datasources.getConfigurationSection(dsName), basePath + ".datasources." + dsName);
+        }
+
+        // Validar pool
+        validatePoolConfig(db.getConfigurationSection("pool"));
+    }
+
+    private void validateDatasource(ConfigurationSection ds, String basePath) {
+        if (ds == null)
+            return;
+
         // Validar tipo
-        String type = db.getString("type", "");
+        String type = ds.getString("type", "");
         if (type.isEmpty()) {
             errors.add(ValidationError.error(basePath + ".type",
                     "Tipo de database não especificado", "mysql ou sqlite", "vazio"));
@@ -102,17 +134,12 @@ public final class ConfigValidator {
 
         // Validar configuração específica do tipo
         switch (type.toLowerCase()) {
-            case "mysql" -> validateMySqlConfig(db.getConfigurationSection("mysql"));
-            case "sqlite" -> validateSqliteConfig(db.getConfigurationSection("sqlite"));
+            case "mysql" -> validateMySqlConfig(ds.getConfigurationSection("mysql"), basePath + ".mysql");
+            case "sqlite" -> validateSqliteConfig(ds.getConfigurationSection("sqlite"), basePath + ".sqlite");
         }
-
-        // Validar pool
-        validatePoolConfig(db.getConfigurationSection("pool"));
     }
 
-    private void validateMySqlConfig(@Nullable ConfigurationSection mysql) {
-        String basePath = "database.mysql";
-
+    private void validateMySqlConfig(@Nullable ConfigurationSection mysql, String basePath) {
         if (mysql == null) {
             errors.add(ValidationError.error(basePath, "Configuração MySQL não encontrada"));
             return;
@@ -131,9 +158,7 @@ public final class ConfigValidator {
         }
     }
 
-    private void validateSqliteConfig(@Nullable ConfigurationSection sqlite) {
-        String basePath = "database.sqlite";
-
+    private void validateSqliteConfig(@Nullable ConfigurationSection sqlite, String basePath) {
         if (sqlite == null) {
             errors.add(ValidationError.error(basePath, "Configuração SQLite não encontrada"));
             return;

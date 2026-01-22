@@ -40,6 +40,14 @@ import java.lang.annotation.Target;
  *         @Arg(value = "reason", defaultValue = "Admin gift") String reason) {
  *     // Give items to player
  * }
+ * 
+ * // With custom type for tab completion:
+ * &#64;Subcommand("setlock")
+ * public void setLock(
+ *         CommandContext ctx,
+ *         &#64;Arg(value = "tier", type = "lock-tier") String tierId) {
+ *     // Lock tier will have tab completion from registered "lock-tier" type
+ * }
  * }
  * </pre>
  *
@@ -103,4 +111,23 @@ public @interface Arg {
      */
     @NotNull
     String description() default "";
+
+    /**
+     * Custom argument type name for tab completion.
+     *
+     * <p>
+     * If specified, this type name will be used instead of inferring from
+     * the Java parameter type. This allows using custom types registered via
+     * {@code ArgumentTypeRegistry.registerForPlugin()}.
+     * </p>
+     *
+     * <p>
+     * Example: {@code @Arg(value = "tier", type = "lock-tier")} will use
+     * the "lock-tier" type for parsing and tab completion.
+     * </p>
+     *
+     * @return The custom type name, or empty to infer from Java type
+     */
+    @NotNull
+    String type() default "";
 }

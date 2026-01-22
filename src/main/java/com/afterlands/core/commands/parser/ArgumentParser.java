@@ -3,6 +3,7 @@ package com.afterlands.core.commands.parser;
 import com.afterlands.core.commands.CommandSpec;
 import com.afterlands.core.commands.execution.ParsedArgs;
 import org.bukkit.command.CommandSender;
+import org.bukkit.plugin.Plugin;
 import org.jetbrains.annotations.NotNull;
 
 import java.util.ArrayList;
@@ -57,10 +58,12 @@ public final class ArgumentParser {
      * @throws ParseException if parsing fails
      */
     @NotNull
-    public ParseResult parse(@NotNull CommandSender sender,
+    public ParseResult parse(@NotNull Plugin owner,
+            @NotNull CommandSender sender,
             @NotNull List<String> args,
             @NotNull List<CommandSpec.ArgumentSpec> argSpecs,
             @NotNull List<CommandSpec.FlagSpec> flagSpecs) throws ParseException {
+        Objects.requireNonNull(owner, "owner");
         Objects.requireNonNull(sender, "sender");
         Objects.requireNonNull(args, "args");
         Objects.requireNonNull(argSpecs, "argSpecs");
@@ -84,7 +87,7 @@ public final class ArgumentParser {
             String typeName = spec.type();
 
             // Get argument type
-            ArgumentType<?> type = typeRegistry.get(typeName);
+            ArgumentType<?> type = resolveType(owner, typeName);
             if (type == null) {
                 throw new ParseException(ParseException.ErrorType.UNKNOWN_TYPE, argName,
                         "Unknown argument type: " + typeName + " for argument: " + argName);
@@ -141,7 +144,7 @@ public final class ArgumentParser {
             // Check if last arg is greedy
             if (!argSpecs.isEmpty()) {
                 CommandSpec.ArgumentSpec lastSpec = argSpecs.get(argSpecs.size() - 1);
-                ArgumentType<?> lastType = typeRegistry.get(lastSpec.type());
+                ArgumentType<?> lastType = resolveType(owner, lastSpec.type());
                 if (lastType != null && lastType.isGreedy()) {
                     // Greedy type - join remaining
                     List<String> remaining = positionalArgs.subList(argIndex, positionalArgs.size());
@@ -251,5 +254,13 @@ public final class ArgumentParser {
             UNKNOWN_TYPE,
             GENERIC
         }
+    }
+
+    private ArgumentType<?> resolveType(Plugin owner, String typeName) {
+        ArgumentType<?> pluginType = typeRegistry.getForPlugin(owner, typeName);
+        if (pluginType != null) {
+            return pluginType;
+        }
+        return typeRegistry.get(typeName);
     }
 }

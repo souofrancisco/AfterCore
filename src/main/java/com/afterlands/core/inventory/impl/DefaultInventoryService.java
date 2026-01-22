@@ -87,6 +87,7 @@ public class DefaultInventoryService implements InventoryService {
             @NotNull SchedulerService scheduler,
             @NotNull SqlService sql,
             @NotNull ActionService actionService,
+            @NotNull com.afterlands.core.actions.ActionExecutor actionExecutor,
             @NotNull ConditionService conditions,
             @NotNull InventoryConfigManager configManager) {
         this.plugin = plugin;
@@ -109,6 +110,7 @@ public class DefaultInventoryService implements InventoryService {
         // Phase 4: Initialize action and drag handlers
         this.actionHandler = new InventoryActionHandler(
                 actionService,
+                actionExecutor,
                 conditionService,
                 placeholderResolver,
                 scheduler,

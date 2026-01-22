@@ -315,17 +315,24 @@ public class TeleportCommand { ... }
 Registre tipos de argumentos customizados por plugin.
 
 ```java
-// Registrar um tipo customizado
-commandService.argumentTypes().registerForPlugin(myPlugin, "lootTable", new LootTableType());
+// Registrar um tipo customizado (baseado em String)
+commandService.argumentTypes().registerForPlugin(myPlugin, "lock-tier", new LockTierType());
 
-// Uso em comandos
-@Subcommand("give")
-public void give(CommandContext ctx, @Arg("table") LootTable table) { ... }
+// Uso em comandos: especificar o tipo explicitamente
+@Subcommand("start")
+public void start(
+    CommandContext ctx,
+    @Arg(value = "tier", type = "lock-tier") String tierId // Usa "lock-tier" para tab completion
+) { ... }
 ```
 
-**Resolução de tipos**: Plugin scope → Global scope.
+**Atributo `type`**:
+*   Permite vincular um parâmetro `String` (ou outro) a um `ArgumentType` específico registrado.
+*   Essencial para fornecer tab-completion customizado (ex: IDs de banco de dados, chaves de config) sem criar classes wrappers desnecessárias.
 
-**Cleanup automático**: Tipos são removidos quando `commandService.unregisterAll(plugin)` é chamado.
+**Resolução de tipos**: Plugin scope (`registerForPlugin`) → Global scope (`register`).
+
+**Cleanup automático**: Tipos registrados via `registerForPlugin` são removidos automaticamente quando `commandService.unregisterAll(plugin)` é chamado (geralmente no `onDisable`).
 
 ---
 

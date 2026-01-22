@@ -41,6 +41,7 @@ import java.util.logging.Logger;
 public class InventoryActionHandler {
 
     private final ActionService actionService;
+    private final com.afterlands.core.actions.ActionExecutor actionExecutor;
     private final ConditionService conditionService;
     private final PlaceholderResolver placeholderResolver;
     private final SchedulerService scheduler;
@@ -57,12 +58,14 @@ public class InventoryActionHandler {
 
     public InventoryActionHandler(
             ActionService actionService,
+            com.afterlands.core.actions.ActionExecutor actionExecutor,
             ConditionService conditionService,
             PlaceholderResolver placeholderResolver,
             SchedulerService scheduler,
             Logger logger,
             boolean debug) {
         this.actionService = actionService;
+        this.actionExecutor = actionExecutor;
         this.conditionService = conditionService;
         this.placeholderResolver = placeholderResolver;
         this.scheduler = scheduler;
@@ -348,7 +351,7 @@ public class InventoryActionHandler {
                 .map(action -> placeholderResolver.resolve(action, player, context))
                 .toList();
 
-        // Execute todas as actions em sequência
+        // Execute todas as actions em sequência (chaining futures)
         CompletableFuture<Void> future = CompletableFuture.completedFuture(null);
 
         for (String actionString : resolvedActions) {
@@ -380,34 +383,18 @@ public class InventoryActionHandler {
                 // Custom inventory action - execute immediately if already on main thread
                 // This is important for navigation actions that need access to the current
                 // holder
-                if (org.bukkit.Bukkit.isPrimaryThread()) {
-                    customHandler.accept(player, action.arguments());
-                    return CompletableFuture.completedFuture(null);
-                } else {
-                    return scheduler.runSync(() -> customHandler.accept(player, action.arguments()));
-                }
+                return scheduler.runSync(() -> customHandler.accept(player, action.arguments()));
             }
 
-            // Delegate to ActionService for standard actions
-            return scheduler.runSync(() -> {
-                try {
-                    // Parse action using ActionService
-                    var spec = actionService.parse(actionString);
-                    if (spec != null) {
-                        // Get handler for this action type
-                        var handler = actionService.getHandlers().get(spec.typeKey());
-                        if (handler != null) {
-                            handler.execute(player, spec);
-                        } else {
-                            if (debug) {
-                                logger.warning("No handler found for action type: " + spec.typeKey());
-                            }
-                        }
-                    }
-                } catch (Exception e) {
-                    logger.log(Level.WARNING, "ActionService failed to execute: " + actionString, e);
-                }
-            });
+            // Delegate to ActionExecutor for standard actions (supports wait, delays,
+            // async)
+            // Need to parse again using ActionService logic to get ActionSpec
+            var spec = actionService.parse(actionString);
+            if (spec != null) {
+                return actionExecutor.executeAsync(spec, player, player.getLocation());
+            }
+
+            return CompletableFuture.completedFuture(null);
 
         } catch (Exception e) {
             logger.log(Level.WARNING, "Failed to execute action: " + actionString, e);

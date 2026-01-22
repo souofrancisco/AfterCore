@@ -447,7 +447,7 @@ public final class DefaultCommandDispatcher implements CommandDispatcher {
 
         try {
             // Use ArgumentParser for proper type conversion
-            var parseResult = argumentParser.parse(sender, remaining, argSpecs, flagSpecs);
+            var parseResult = argumentParser.parse(root.owner(), sender, remaining, argSpecs, flagSpecs);
             parsedArgs = parseResult.args();
             parsedFlags = parseResult.flags();
         } catch (ArgumentParser.ParseException e) {

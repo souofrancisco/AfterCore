@@ -4,6 +4,7 @@ import com.afterlands.core.AfterCorePlugin;
 import com.afterlands.core.actions.ActionExecutor;
 import com.afterlands.core.actions.ActionService;
 import com.afterlands.core.actions.handlers.*;
+import com.afterlands.core.actions.handlers.WaitHandler;
 import com.afterlands.core.actions.handlers.inventory.ClosePanelHandler;
 import com.afterlands.core.actions.handlers.inventory.OpenPanelHandler;
 import com.afterlands.core.actions.handlers.inventory.RefreshPanelHandler;
@@ -73,6 +74,12 @@ public class PluginRegistry {
     public void initialize() {
         // 1. Config loading & validation
         plugin.saveDefaultConfig();
+
+        // 2. Initial Setup Services (needed for config updates)
+        boolean debug = plugin.getConfig().getBoolean("debug", false);
+        this.config = new DefaultConfigService(plugin, debug); // Init here!
+
+        // Update Configs using the Service
         updateConfigFile("config.yml");
 
         saveDefaultMessages();
@@ -95,11 +102,12 @@ public class PluginRegistry {
             }
         }
 
-        boolean debug = plugin.getConfig().getBoolean("debug", false);
+        // Re-read debug after potential config updates
+        debug = plugin.getConfig().getBoolean("debug", false);
 
-        // 2. Base Services
+        // 3. Dependent Services
         this.scheduler = new DefaultSchedulerService(plugin, debug);
-        this.config = new DefaultConfigService(plugin, debug);
+        // this.config = new DefaultConfigService(plugin, debug); // Moved up
         this.messages = new DefaultMessageService(plugin, config, debug);
 
         // 3. Database
@@ -112,7 +120,7 @@ public class PluginRegistry {
         this.actions = new DefaultActionService(conditions, debug);
         registerDefaultActionHandlers(debug);
 
-        this.actionExecutor = new ActionExecutor(plugin, conditions, actions.getHandlers(), debug);
+        this.actionExecutor = new ActionExecutor(plugin, conditions, scheduler, actions.getHandlers(), debug);
 
         // 5. Metrics & Diagnostics
         this.metrics = new DefaultMetricsService();
@@ -132,7 +140,8 @@ public class PluginRegistry {
 
         // 8. Inventory Framework
         InventoryConfigManager invConfigManager = new InventoryConfigManager(plugin, config);
-        this.inventory = new DefaultInventoryService(plugin, scheduler, sql, actions, conditions, invConfigManager);
+        this.inventory = new DefaultInventoryService(plugin, scheduler, sql, actions, actionExecutor, conditions,
+                invConfigManager);
     }
 
     public void shutdown() {
@@ -171,31 +180,13 @@ public class PluginRegistry {
     // ==================== Private Helpers ====================
 
     private void updateConfigFile(String filename) {
-        InputStream defaultStream = plugin.getResource(filename);
-        if (defaultStream == null)
-            return;
-
-        File configFile = new File(plugin.getDataFolder(), filename);
-        if (!configFile.exists())
-            return;
-
-        YamlConfiguration currentConfig = YamlConfiguration.loadConfiguration(configFile);
-        YamlConfiguration defaultConfig = YamlConfiguration.loadConfiguration(
-                new InputStreamReader(defaultStream, StandardCharsets.UTF_8));
-
-        ConfigUpdater updater = new ConfigUpdater(logger);
-        boolean updated = updater.update(currentConfig, defaultConfig);
-
-        if (updated) {
-            try {
-                currentConfig.save(configFile);
-                logger.info(filename + " atualizado com novas chaves.");
-                if ("config.yml".equals(filename)) {
-                    plugin.reloadConfig();
-                }
-            } catch (IOException e) {
-                logger.warning("Falha ao salvar " + filename + ": " + e.getMessage());
-            }
+        if ("config.yml".equals(filename)) {
+            config.update(plugin, filename, updater -> {
+                updater.registerMigration(2, new com.afterlands.core.config.migrations.MigrationV2());
+            });
+            plugin.reloadConfig();
+        } else {
+            config.update(plugin, filename);
         }
     }
 
@@ -217,6 +208,10 @@ public class PluginRegistry {
         // Basic handlers
         actions.registerHandler("message", new MessageHandler());
         actions.registerHandler("actionbar", new ActionBarHandler());
+
+        WaitHandler waitHandler = new WaitHandler();
+        actions.registerHandler("wait", waitHandler);
+        actions.registerHandler("delay", waitHandler);
 
         SoundHandler soundHandler = new SoundHandler();
         actions.registerHandler("sound", soundHandler);

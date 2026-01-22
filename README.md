@@ -18,6 +18,28 @@
   </p>
 </div>
 
+## 🌟 Key Features
+
+### 📦 Inventory Framework
+A powerful YAML-based GUI system designed for performance.
+- **Smart Caching** & Async Loading
+- **Pagination**: Native, Layout, or Hybrid modes
+- **Animations**: Frame-based item animations
+- **Variants System**: Conditional items (dynamic state)
+- **Extended Actions**: Logic branches (success/fail) directly in YAML
+
+### ⚡ Command Framework
+Annotation-driven command handling.
+- **Param Injection**: Auto-resolve logical dependencies
+- **Rate Limiting**: Configurable `@Cooldown`
+- **Aliases**: Dynamic runtime aliases & `@Alias` support
+- **Async Execution**: `ctx.runAsync()` support
+
+### 🔧 Core Services
+- **ActionService**: Unified string-based action parsing (`open_panel`, `sound`, `console_command`, etc.)
+- **ConditionService**: Logical expression evaluation (`%money% >= 100`)
+- **Persistence**: Efficient data handling with `CompletableFuture`
+
 ## 📚 Documentation
 
 The complete documentation is available in our **[GitHub Wiki](https://github.com/AfterLands/AfterCore/wiki)**.

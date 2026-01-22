@@ -3,14 +3,15 @@
 ### Objetivo
 Centralizar infraestrutura comum do ecossistema AfterLands em um plugin library, reduzindo duplicação entre plugins e padronizando threading/caching para suportar alta concorrência.
 
-### Status Atual: v1.0.2 (2026-01-08)
+### Status Atual: v2.0.0 (2026-01-19)
 **Production Ready** ✅
 
 - 10 Core Services implementados
 - Inventory Framework completo (9 fases, 101h)
+- **SqlRegistry Multi-Datasource** ✅ NEW
 - Performance targets atingidos/superados
 - 18,000+ palavras de documentação
-- Build: AfterCore-1.0.2.jar (19 MB)
+- Build: AfterCore-2.0.0.jar (19 MB)
 
 ---
 
@@ -191,6 +192,13 @@ Centralizar infraestrutura comum do ecossistema AfterLands em um plugin library,
 - [x] Documentação + exemplos
 - [x] Version bump to 1.0.2
 
+### Fase 10: Variants & Extended Actions (v1.3.1) ✅
+- [x] **Variants System**: Composição condicional de itens (substituição visual)
+- [x] **Extended Actions**: Lógica `conditions`/`success`/`fail` em YAML
+- [x] **Dynamic Aliases**: Comandos dinâmicos em runtime
+- [x] **Rate Limiting**: `@Cooldown` annotation
+- [x] Documentação atualizada (Exemplo 13)
+
 ### Performance Metrics (Target ✅ Atingido)
 - **TPS**: 27ms/50ms (54%) @ 500 CCU ✅ (target: 20 TPS)
 - **Latência**: ~25ms média ✅ (target: <50ms)
@@ -225,18 +233,126 @@ Centralizar infraestrutura comum do ecossistema AfterLands em um plugin library,
 
 ---
 
-## Release 0.6 — Command Framework + Melhorias (FUTURO)
-### Entregas
-- [ ] `CommandService` completo via CommandMap
-- [ ] `SqlRegistry` para multi-datasource
-- [ ] AST cache para conditions
-- [ ] `inTransaction()` helper
+## Release 1.3 — Command Framework ✅ COMPLETO
+**Status:** Concluído em v1.3.0 (2026-01-15). Framework de comandos completo e production-ready.
 
-### Critérios de aceite
-- Plugins filhos sem `switch/case` gigante em `onCommand`
-- Múltiplos datasources funcionando isolados
+### Entregas ✅
+- [x] **CommandService** completo via reflection (CommandMap)
+- [x] **Anotações declarativas**: `@Command`, `@SubCommand`, `@Arg`, `@Flag`
+- [x] **Aliases dinâmicos**: `DynamicCommandAlias` para runtime aliases
+- [x] **Rate Limiting**: `@Cooldown` annotation com interceptor
+- [x] **ArgumentTypeRegistry**: Suporte a tipos customizados de argumentos
+- [x] **Error Handling**: Mensagens de erro de alta prioridade
+- [x] **Tab Completion**: Auto-complete baseado em argumentos registrados
+
+### Critérios de aceite ✅
+- Plugins filhos sem `switch/case` gigante em `onCommand` ✅
+- Comandos declarativos com anotações ✅
+- Rate limiting funcional ✅
 
 ---
+
+## Release 1.4 — SqlRegistry Multi-Datasource ✅ COMPLETO
+**Status:** Concluído em v1.4.0 (2026-02-10). Gerenciamento avançado de múltiplas conexões SQL e persistência isolada.
+
+### Entregas ✅
+- [x] **SqlService Multi-Tenant**: `sql(String name)` para acesso a diferentes bancos
+- [x] **Configuração Hierárquica**: Suporte a `database.datasources.{name}` no YAML
+- [x] **Scoped Migrations**: `registerMigration(dsName, ...)` para migrações independentes
+- [x] **Health Checks**: Monitoramento individual de saúde de conexões por pool
+
+### Critérios de aceite ✅
+- Isolamento total de dados (ex: analytics separado de gameplay) ✅
+- Pools de conexão independentes e resilientes ✅
+- Migrações executadas apenas no target correto ✅
+
+---
+
+## Release 1.4.1 — Config System & Backups ✅ COMPLETO
+**Status:** Concluído em v1.4.1 (2026-02-10). Sistema de configuração robusto e resiliente.
+
+### Entregas ✅
+- [x] **API Genérica**: `config().update(...)` acessível para todos os plugins
+- [x] **Timestamped Backups**: Rotação automática de 5 backups
+- [x] **Smart Migrations**: Consumers para lógica customizada de migração
+- [x] **Fail-safe Writing**: Escrita atômica para prevenir corrupção
+
+### Critérios de aceite ✅
+- Plugins filhos usam API sem duplicar `ConfigUpdater` ✅
+- Backups criados antes de qualquer alteração destrutiva ✅
+- Migrações complexas suportadas sem hardcode no Core ✅
+
+---
+
+## Release 2.0 — Next Generation (FUTURO)
+
+### Prioridade Alta (Robustez)
+
+#### 2.2 Circuit Breaker & Resilience
+- [ ] Circuit breaker para DB/external services
+- [ ] Estados: CLOSED → OPEN → HALF_OPEN
+- [ ] Feature degradation automática quando DB falha
+- [ ] Métricas de failure rate + recovery time
+- **Benefício**: Servidor continua funcionando mesmo com DB instável
+
+#### 2.3 AST Cache para Conditions
+- [ ] Cache do parse/AST por expressão
+- [ ] `expression → AST` lookup O(1)
+- [ ] Cache de resultados por `(playerId, expression, ctxVersion)`
+- [ ] Invalidação automática em mudanças de contexto
+- **Benefício**: Conditions 5-10x mais rápidas em hot-paths
+
+### Prioridade Média (Features)
+
+#### 2.4 Event Framework
+- [ ] `EventService` para eventos tipados cross-plugin
+- [ ] Pub/Sub pattern com `@Subscribe` annotation
+- [ ] Async event handlers com executor dedicado
+- [ ] Event priorities (LOWEST → HIGHEST)
+- **Benefício**: Comunicação desacoplada entre plugins
+
+#### 2.5 API Versioning
+- [ ] Versionamento semântico na API pública
+- [ ] Deprecation warnings com migration hints
+- [ ] Compatibility layer para breaking changes
+- **Benefício**: Plugins filhos não quebram em updates
+
+#### 2.6 Hot Reload
+- [ ] `ConfigService.watch()` para file watchers
+- [ ] Reload de inventários sem restart
+- [ ] Reload de conditions/actions em runtime
+- **Benefício**: Desenvolvimento 10x mais rápido
+
+### Prioridade Baixa (Nice-to-Have)
+
+#### 2.7 Telemetry & Observability
+- [ ] Export de métricas para Prometheus/Grafana
+- [ ] Tracing distribuído (spans por operação)
+- [ ] Dashboard web embeddido (opcional)
+- **Benefício**: Debugging avançado em produção
+
+#### 2.8 Plugin SDK Generator
+- [ ] Template generator: `mvn archetype:generate -DarchetypeArtifactId=aftercore-plugin`
+- [ ] Scaffolding automático (pom.xml, plugin.yml, base classes)
+- [ ] CLI tool para criar comandos/inventários
+- **Benefício**: Onboarding de novos plugins em 5 minutos
+
+---
+
+## Release 2.1 — Database Enhancements (FUTURO)
+
+### Entregas Planejadas
+- [ ] `inTransaction(conn -> ...)` helper para transações
+- [ ] `isAvailable()` check rápido
+- [ ] Connection pool warm-up on startup
+- [ ] Query builder fluent API (opcional)
+- [ ] Prepared statement caching
+
+### Critérios de aceite
+- Zero boilerplate para transações
+- Health checks em `/acore db`
+
+
 
 ## Riscos e mitigações
 | Risco | Mitigação |

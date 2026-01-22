@@ -1,183 +1,287 @@
 package com.afterlands.core.config.update;
 
+import com.afterlands.core.config.io.AtomicConfigWriter;
+import com.afterlands.core.config.io.ConfigBackupManager;
 import org.bukkit.configuration.ConfigurationSection;
 import org.bukkit.configuration.file.FileConfiguration;
-import org.bukkit.configuration.file.YamlConfiguration;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 
+import java.io.File;
+import java.io.IOException;
+import java.io.InputStream;
+import java.nio.file.Files;
 import java.util.*;
 import java.util.logging.Logger;
+import java.util.stream.Collectors;
 
 /**
- * Atualiza o config.yml preservando valores do usuário e mesclando novos defaults.
+ * Atualiza arquivos YAML preservando valores do usuário e comentários.
  *
- * <p>Estratégia:
+ * <p>
+ * Suporta dois modos:
  * <ul>
- *   <li>Compara versão atual com versão esperada</li>
- *   <li>Mescla novas chaves dos defaults preservando valores existentes</li>
- *   <li>Aplica migrations específicas quando necessário</li>
+ * <li><b>Versionado (ex: config.yml):</b> Gerencia migrations e verifica
+ * versão.</li>
+ * <li><b>Genérico (ex: messages.yml):</b> Apenas adiciona chaves faltantes
+ * (Smart Merge).</li>
  * </ul>
  * </p>
  */
 public final class ConfigUpdater {
 
-    private static final int CURRENT_VERSION = 1;
-
     private final Logger logger;
+    private final File configFile;
+    private final ConfigBackupManager backupManager;
     private final Map<Integer, ConfigMigration> migrations = new HashMap<>();
 
-    public ConfigUpdater(@NotNull Logger logger) {
+    public ConfigUpdater(@NotNull Logger logger, @NotNull File configFile) {
         this.logger = logger;
-        registerMigrations();
+        this.configFile = configFile;
+        this.backupManager = new ConfigBackupManager(logger);
     }
 
     /**
-     * Atualiza o config se necessário, retornando true se houve alterações.
-     *
-     * @param userConfig   Config atual do usuário
-     * @param defaultConfig Config com defaults (do JAR)
-     * @return true se config foi atualizado
+     * Registra uma migration para uma versão específica.
+     */
+    public void registerMigration(int version, ConfigMigration migration) {
+        migrations.put(version, migration);
+    }
+
+    /**
+     * Atualiza o arquivo se necessário.
+     * Versão simplificada (sem options)
      */
     public boolean update(@NotNull FileConfiguration userConfig,
-                         @NotNull FileConfiguration defaultConfig) {
-        int currentVersion = userConfig.getInt("config-version", 0);
+            @Nullable InputStream defaultStream,
+            @NotNull FileConfiguration defaultConfig) {
+        return update(userConfig, defaultStream, defaultConfig, null);
+    }
 
-        if (currentVersion == 0) {
-            logger.info("Config sem versão detectado. Adicionando versão " + CURRENT_VERSION);
-            userConfig.set("config-version", CURRENT_VERSION);
-            mergeDefaults(userConfig, defaultConfig);
-            return true;
+    /**
+     * Atualiza o arquivo com opções de personalização (registro de migrations).
+     */
+    public boolean update(@NotNull FileConfiguration userConfig,
+            @Nullable InputStream defaultStream,
+            @NotNull FileConfiguration defaultConfig,
+            @Nullable java.util.function.Consumer<ConfigUpdater> options) {
+
+        // Aplica configurações extras (ex: registrar migrations externas)
+        if (options != null) {
+            options.accept(this);
         }
 
-        if (currentVersion == CURRENT_VERSION) {
-            // Mesmo assim, mesclar defaults novos
-            boolean changed = mergeDefaults(userConfig, defaultConfig);
-            if (changed) {
-                logger.info("Novos valores padrão adicionados ao config");
+        double targetVersion = defaultConfig.getDouble("config-version", 0.0);
+
+        if (targetVersion > 0) {
+            return updateVersioned(userConfig, defaultStream, defaultConfig, targetVersion);
+        } else {
+            return updateGeneric(userConfig, defaultStream, defaultConfig);
+        }
+    }
+
+    private boolean updateVersioned(FileConfiguration userConfig, InputStream defaultStream,
+            FileConfiguration defaultConfig, double targetVersion) {
+        double currentVersion = userConfig.getDouble("config-version", 0.0);
+        boolean diskChanged = false;
+
+        // 1. Caso crítico: Sem versão -> Assumir nova versão
+        if (currentVersion == 0.0) {
+            logger.info("[Config] " + configFile.getName() + " sem versão. Definindo v" + targetVersion);
+            backupManager.createBackup(configFile);
+            updateVersionInFile(targetVersion);
+            diskChanged = true;
+            currentVersion = targetVersion;
+        }
+
+        // 2. Migrations
+        if (currentVersion < targetVersion) {
+            logger.info(
+                    "[Config] Atualizando " + configFile.getName() + ": v" + currentVersion + " -> v" + targetVersion);
+            backupManager.createBackup(configFile);
+
+            // Migrations continuam sendo integer-based para compatibilidade
+            int currentMajor = (int) Math.floor(currentVersion);
+            int targetMajor = (int) Math.floor(targetVersion);
+
+            for (int version = currentMajor + 1; version <= targetMajor; version++) {
+                ConfigMigration migration = migrations.get(version);
+                if (migration != null) {
+                    logger.info("Aplicando migration v" + version);
+                    migration.migrate(userConfig, defaultConfig);
+                    // Migration pode modificar estrutura, precisa salvar
+                    safeSave(userConfig);
+                }
             }
-            return changed;
-        }
-
-        if (currentVersion > CURRENT_VERSION) {
-            logger.warning("Config possui versão futura (" + currentVersion + "). " +
-                    "Plugin atual suporta apenas versão " + CURRENT_VERSION + ". " +
-                    "Possível downgrade de versão do plugin?");
+            diskChanged = true;
+        } else if (currentVersion > targetVersion) {
+            // Nota: Removemos o forceMigration hardcoded daqui.
+            // Para lógica customizada de legacy check, o ideal seria um callback específico
+            // no futuro,
+            // mas por enquanto, manter simples.
+            logger.warning("[Config] Versão futura detectada em " + configFile.getName() + " (" + currentVersion + " > "
+                    + targetVersion + ")");
             return false;
         }
 
-        // currentVersion < CURRENT_VERSION: aplicar migrations
-        logger.info("Atualizando config da versão " + currentVersion + " para " + CURRENT_VERSION);
-
-        boolean changed = false;
-        for (int version = currentVersion + 1; version <= CURRENT_VERSION; version++) {
-            ConfigMigration migration = migrations.get(version);
-            if (migration != null) {
-                logger.info("Aplicando migration para versão " + version);
-                migration.migrate(userConfig, defaultConfig);
-                changed = true;
-            }
+        // 3. Smart Merge (ANTES de atualizar versão)
+        if (performSmartMerge(userConfig, defaultStream, defaultConfig, diskChanged)) {
+            diskChanged = true;
         }
 
-        userConfig.set("config-version", CURRENT_VERSION);
-
-        // Mesclar defaults após migrations
-        if (mergeDefaults(userConfig, defaultConfig)) {
-            changed = true;
+        // 4. Atualizar versão via texto (ÚLTIMA operação para preservar comentários)
+        if (currentVersion < targetVersion) {
+            updateVersionInFile(targetVersion);
         }
 
-        if (changed) {
-            logger.info("Config atualizado com sucesso para versão " + CURRENT_VERSION);
-        }
-
-        return changed;
+        return diskChanged;
     }
 
-    /**
-     * Mescla valores padrão que não existem no config do usuário.
-     *
-     * @return true se algum valor foi adicionado
-     */
-    private boolean mergeDefaults(@NotNull ConfigurationSection userConfig,
-                                 @NotNull ConfigurationSection defaultConfig) {
-        boolean changed = false;
+    private boolean updateGeneric(FileConfiguration userConfig, InputStream defaultStream,
+            FileConfiguration defaultConfig) {
+        return performSmartMerge(userConfig, defaultStream, defaultConfig, false);
+    }
 
-        for (String key : defaultConfig.getKeys(true)) {
-            // Pular seções (processar apenas valores finais)
-            if (defaultConfig.isConfigurationSection(key)) {
-                continue;
+    private boolean performSmartMerge(FileConfiguration userConfig, InputStream defaultStream,
+            FileConfiguration defaultConfig, boolean forceBackup) {
+        if (defaultStream == null)
+            return false;
+
+        try {
+            List<String> userLines = configFile.exists()
+                    ? Files.readAllLines(configFile.toPath())
+                    : Collections.emptyList();
+
+            // Detectar chaves faltantes (root + nested)
+            List<String> missingRootKeys = getMissingRootKeys(userConfig, defaultConfig);
+            List<String> missingNestedKeys = getMissingNestedKeys(userConfig, defaultConfig, "");
+
+            if (!missingRootKeys.isEmpty()) {
+                if (!forceBackup) {
+                    backupManager.createBackup(configFile);
+                }
+
+                logger.info("[Config] Adicionando " + missingRootKeys.size() + " novas chaves raiz em "
+                        + configFile.getName());
+                String mergedContent = SmartConfigMerger.merge(userLines, defaultStream, missingRootKeys);
+
+                AtomicConfigWriter.write(configFile, mergedContent);
+                return true;
+            } else if (!missingNestedKeys.isEmpty()) {
+                // Chaves nested faltando - precisa usar API do Bukkit
+                if (!forceBackup) {
+                    backupManager.createBackup(configFile);
+                }
+
+                logger.info("[Config] Adicionando " + missingNestedKeys.size() + " chaves nested em "
+                        + configFile.getName());
+                for (String nestedKey : missingNestedKeys) {
+                    userConfig.set(nestedKey, defaultConfig.get(nestedKey));
+                }
+                safeSave(userConfig);
+                return true;
             }
+        } catch (IOException e) {
+            logger.severe("[Config] Falha no Smart Merge de " + configFile.getName() + ": " + e.getMessage());
+        }
+        return false;
+    }
 
-            // Se não existe no config do usuário, adicionar
-            if (!userConfig.contains(key)) {
-                Object defaultValue = defaultConfig.get(key);
-                userConfig.set(key, defaultValue);
-                logger.fine("Adicionada chave ausente: " + key + " = " + defaultValue);
-                changed = true;
+    private List<String> getMissingRootKeys(FileConfiguration userConfig, FileConfiguration defaultConfig) {
+        return defaultConfig.getKeys(false).stream()
+                .filter(key -> !userConfig.contains(key))
+                .collect(Collectors.toList());
+    }
+
+    private List<String> getMissingNestedKeys(FileConfiguration userConfig, FileConfiguration defaultConfig,
+            String prefix) {
+        List<String> missing = new ArrayList<>();
+        for (String key : defaultConfig.getKeys(false)) {
+            String fullPath = prefix.isEmpty() ? key : prefix + "." + key;
+            if (userConfig.contains(key)) {
+                // Key existe, verificar sub-keys se for seção
+                Object defaultVal = defaultConfig.get(key);
+                Object userVal = userConfig.get(key);
+                if (defaultVal instanceof ConfigurationSection && userVal instanceof ConfigurationSection) {
+                    missing.addAll(getMissingNestedKeysInSection(
+                            (ConfigurationSection) userVal,
+                            (ConfigurationSection) defaultVal,
+                            fullPath));
+                }
             }
         }
-
-        return changed;
+        return missing;
     }
 
-    /**
-     * Registra migrations por versão.
-     */
-    private void registerMigrations() {
-        // Exemplo: migration para versão 1 (inicial)
-        // Se no futuro houver versão 2, adicionar aqui
-        // migrations.put(2, new MigrationTo2());
+    private List<String> getMissingNestedKeysInSection(ConfigurationSection userSection,
+            ConfigurationSection defaultSection, String prefix) {
+        List<String> missing = new ArrayList<>();
+        for (String key : defaultSection.getKeys(false)) {
+            String fullPath = prefix + "." + key;
+            if (!userSection.contains(key)) {
+                missing.add(fullPath);
+            } else {
+                Object defaultVal = defaultSection.get(key);
+                Object userVal = userSection.get(key);
+                if (defaultVal instanceof ConfigurationSection && userVal instanceof ConfigurationSection) {
+                    missing.addAll(getMissingNestedKeysInSection(
+                            (ConfigurationSection) userVal,
+                            (ConfigurationSection) defaultVal,
+                            fullPath));
+                }
+            }
+        }
+        return missing;
     }
 
-    /**
-     * Interface para migrations de config.
-     */
+    private void updateVersionInFile(double newVersion) {
+        try {
+            List<String> lines = Files.readAllLines(configFile.toPath());
+            boolean found = false;
+            for (int i = 0; i < lines.size(); i++) {
+                String line = lines.get(i);
+                if (line.trim().startsWith("config-version:")) {
+                    // Preservar indentação e comentário na mesma linha se houver
+                    int colonIndex = line.indexOf(':');
+                    String prefix = line.substring(0, colonIndex + 1);
+                    lines.set(i, prefix + " " + newVersion);
+                    found = true;
+                    break;
+                }
+            }
+            if (found) {
+                AtomicConfigWriter.write(configFile, String.join(System.lineSeparator(), lines));
+            }
+        } catch (IOException e) {
+            logger.warning("[Config] Falha ao atualizar versão em " + configFile.getName() + ": " + e.getMessage());
+        }
+    }
+
+    private void safeSave(FileConfiguration config) {
+        try {
+            String data = config.saveToString();
+            AtomicConfigWriter.write(configFile, data);
+        } catch (IOException e) {
+            logger.severe("[Config] Falha crítica ao salvar " + configFile.getName() + ": " + e.getMessage());
+        }
+    }
+
     @FunctionalInterface
     public interface ConfigMigration {
-        /**
-         * Aplica a migration no config do usuário.
-         *
-         * @param userConfig   Config do usuário (será modificado)
-         * @param defaultConfig Config padrão (apenas leitura)
-         */
-        void migrate(@NotNull ConfigurationSection userConfig,
-                    @NotNull ConfigurationSection defaultConfig);
+        void migrate(@NotNull ConfigurationSection userConfig, @NotNull ConfigurationSection defaultConfig);
     }
 
-    /**
-     * Cria uma cópia profunda de um ConfigurationSection.
-     * Útil para testes e comparações.
-     */
-    @NotNull
-    public static YamlConfiguration deepCopy(@NotNull ConfigurationSection section) {
-        YamlConfiguration copy = new YamlConfiguration();
-        for (String key : section.getKeys(true)) {
-            copy.set(key, section.get(key));
-        }
-        return copy;
-    }
-
-    /**
-     * Helper para renomear uma chave preservando o valor.
-     */
-    public static void renameKey(@NotNull ConfigurationSection config,
-                                @NotNull String oldKey,
-                                @NotNull String newKey) {
+    // Helpers estáticos para Migrations
+    public static void renameKey(@NotNull ConfigurationSection config, @NotNull String oldKey, @NotNull String newKey) {
         if (config.contains(oldKey) && !config.contains(newKey)) {
-            Object value = config.get(oldKey);
-            config.set(newKey, value);
+            config.set(newKey, config.get(oldKey));
             config.set(oldKey, null);
         }
     }
 
-    /**
-     * Helper para mover uma chave para outra seção.
-     */
-    public static void moveKey(@NotNull ConfigurationSection config,
-                              @NotNull String oldPath,
-                              @NotNull String newPath) {
+    public static void moveKey(@NotNull ConfigurationSection config, @NotNull String oldPath, @NotNull String newPath) {
         if (config.contains(oldPath) && !config.contains(newPath)) {
-            Object value = config.get(oldPath);
-            config.set(newPath, value);
+            config.set(newPath, config.get(oldPath));
             config.set(oldPath, null);
         }
     }

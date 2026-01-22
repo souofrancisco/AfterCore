@@ -49,5 +49,40 @@ public final class DefaultConfigService implements ConfigService {
             plugin.getLogger().info("[AfterCore] Config reloadAll OK");
         }
     }
-}
 
+    @Override
+    public boolean update(@NotNull Plugin targetPlugin, @NotNull String resourceName) {
+        return update(targetPlugin, resourceName, null);
+    }
+
+    @Override
+    public boolean update(@NotNull Plugin targetPlugin, @NotNull String resourceName,
+            @org.jetbrains.annotations.Nullable java.util.function.Consumer<com.afterlands.core.config.update.ConfigUpdater> options) {
+
+        // Validação básica
+        java.io.InputStream defaultStream = targetPlugin.getResource(resourceName);
+        if (defaultStream == null) {
+            if (debug)
+                plugin.getLogger().warning("[AfterCore] Recurso não encontrado no JAR do plugin alvo: " + resourceName);
+            return false;
+        }
+
+        File configFile = new File(targetPlugin.getDataFolder(), resourceName);
+        if (!configFile.exists()) {
+            targetPlugin.saveResource(resourceName, false);
+            return true;
+        }
+
+        // Fluxo completo do ConfigUpdater
+        YamlConfiguration currentConfig = YamlConfiguration.loadConfiguration(configFile);
+        YamlConfiguration defaultConfig = YamlConfiguration.loadConfiguration(
+                new java.io.InputStreamReader(defaultStream, java.nio.charset.StandardCharsets.UTF_8));
+
+        java.io.InputStream mergeStream = targetPlugin.getResource(resourceName);
+
+        com.afterlands.core.config.update.ConfigUpdater updater = new com.afterlands.core.config.update.ConfigUpdater(
+                targetPlugin.getLogger(), configFile);
+
+        return updater.update(currentConfig, mergeStream, defaultConfig, options);
+    }
+}

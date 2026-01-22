@@ -1,13 +1,14 @@
 package com.afterlands.core.commands.completion;
 
 import com.afterlands.core.commands.CommandSpec;
-import com.afterlands.core.commands.parser.ArgumentParser;
 import com.afterlands.core.commands.parser.ArgumentType;
 import com.afterlands.core.commands.parser.ArgumentTypeRegistry;
 import com.afterlands.core.commands.registry.CommandGraph;
 import com.afterlands.core.commands.registry.nodes.CommandNode;
+import com.afterlands.core.commands.registry.nodes.RootNode;
 import com.afterlands.core.commands.registry.nodes.SubNode;
 import org.bukkit.command.CommandSender;
+import org.bukkit.plugin.Plugin;
 import org.jetbrains.annotations.NotNull;
 
 import java.util.*;
@@ -107,7 +108,8 @@ public final class TabCompleter {
 
             // Add argument suggestions if node is executable
             if (currentNode.isExecutable() && !currentNode.arguments().isEmpty()) {
-                suggestions.addAll(completeArguments(sender, currentNode, resolution.remaining(), partial));
+                suggestions.addAll(
+                        completeArguments(sender, resolution.root(), currentNode, resolution.remaining(), partial));
             }
 
             // Add help suggestion
@@ -151,6 +153,7 @@ public final class TabCompleter {
     }
 
     private List<String> completeArguments(CommandSender sender,
+            RootNode root,
             CommandNode node,
             List<String> currentArgs,
             String partial) {
@@ -166,7 +169,7 @@ public final class TabCompleter {
         if (argPosition >= argSpecs.size()) {
             // Beyond defined arguments - check if last is greedy
             CommandSpec.ArgumentSpec lastSpec = argSpecs.get(argSpecs.size() - 1);
-            ArgumentType<?> lastType = typeRegistry.get(lastSpec.type());
+            ArgumentType<?> lastType = getTypeForPlugin(root.owner(), lastSpec.type());
             if (lastType != null && lastType.isGreedy()) {
                 // Greedy string - no suggestions
                 return List.of();
@@ -177,8 +180,8 @@ public final class TabCompleter {
         CommandSpec.ArgumentSpec spec = argSpecs.get(argPosition);
         String typeName = spec.type();
 
-        // Get type
-        ArgumentType<?> type = typeRegistry.get(typeName);
+        // Get type (plugin-scoped first, then global)
+        ArgumentType<?> type = getTypeForPlugin(root.owner(), typeName);
         if (type == null) {
             return List.of();
         }
@@ -198,6 +201,17 @@ public final class TabCompleter {
                 return List.of();
             }
         });
+    }
+
+    /**
+     * Gets an argument type, checking plugin scope first then global.
+     */
+    private ArgumentType<?> getTypeForPlugin(Plugin owner, String typeName) {
+        ArgumentType<?> pluginType = typeRegistry.getForPlugin(owner, typeName);
+        if (pluginType != null) {
+            return pluginType;
+        }
+        return typeRegistry.get(typeName);
     }
 
     private List<String> completeLongFlags(CommandNode node, String partial) {

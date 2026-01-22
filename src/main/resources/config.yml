@@ -3,33 +3,60 @@
 # Regra: ZERO I/O na main thread. Tudo que tocar DB deve ser async.
 
 # Versão do config (usado para migrations automáticas)
-config-version: 1
+config-version: 2
+
+debug: false
 
 database:
   enabled: true
-  # mysql | sqlite
-  type: "mysql"
 
-  # MySQL (produção)
-  mysql:
-    host: "localhost"
-    port: 3306
-    database: "afterlands"
-    username: "root"
-    password: ""
-
-  # SQLite (dev/local). O caminho relativo é resolvido dentro da pasta do plugin.
-  sqlite:
-    file: "aftercore.db"
-    # Opcional: SQL executado ao abrir cada conexão (PRAGMA etc.)
-    connection-init-sql: "PRAGMA foreign_keys=ON;"
-
+  # Pool defaults (herdados por todos os datasources)
   pool:
     maximum-pool-size: 10
     minimum-idle: 2
     connection-timeout: 30000
     idle-timeout: 600000
     max-lifetime: 1800000
+
+  # =====================================================================
+  # MULTI-DATASOURCE (v2.0+)
+  # =====================================================================
+  # Cada datasource tem nome próprio, tipo, configuração e pool isolado.
+  # O datasource "default" é usado pelos métodos retrocompatíveis.
+  
+  datasources:
+    # Datasource principal (gameplay, inventories, etc)
+    default:
+      type: "mysql"
+      mysql:
+        host: "localhost"
+        port: 3306
+        database: "afterlands"
+        username: "root"
+        password: ""
+      # Pool override (opcional - herda de pool acima se não especificado)
+      # pool:
+      #   maximum-pool-size: 15
+
+    # Exemplo: Analytics/Auditoria (separado para não impactar gameplay)
+    # analytics:
+    #   type: "mysql"
+    #   mysql:
+    #     host: "localhost"
+    #     port: 3306
+    #     database: "afterlands_analytics"
+    #     username: "root"
+    #     password: ""
+    #   pool:
+    #     maximum-pool-size: 5
+    #     minimum-idle: 1
+
+    # Exemplo: Dev local (SQLite)
+    # local:
+    #   type: "sqlite"
+    #   sqlite:
+    #     file: "local-data.db"
+    #     connection-init-sql: "PRAGMA foreign_keys=ON;"
 
 concurrency:
   # Threads para tarefas bloqueantes (DB / I/O). Ajustar conforme hardware.
@@ -47,6 +74,3 @@ commands:
   help:
     # Número de subcomandos exibidos por página no help
     page-size: 7
-
-debug: false
-

@@ -80,6 +80,39 @@ public final class DefaultSchedulerService implements SchedulerService {
     }
 
     @Override
+    public @NotNull <T> CompletableFuture<T> supplySync(@NotNull java.util.function.Supplier<T> supplier) {
+        CompletableFuture<T> cf = new CompletableFuture<>();
+        if (Bukkit.isPrimaryThread()) {
+            try {
+                cf.complete(supplier.get());
+            } catch (Throwable t) {
+                cf.completeExceptionally(t);
+            }
+            return cf;
+        }
+
+        Bukkit.getScheduler().runTask(plugin, () -> {
+            try {
+                cf.complete(supplier.get());
+            } catch (Throwable t) {
+                cf.completeExceptionally(t);
+            }
+        });
+        return cf;
+    }
+
+    @Override
+    public @NotNull CompletableFuture<Void> delay(long ticks) {
+        CompletableFuture<Void> cf = new CompletableFuture<>();
+        if (ticks <= 0) {
+            cf.complete(null);
+            return cf;
+        }
+        Bukkit.getScheduler().runTaskLater(plugin, () -> cf.complete(null), ticks);
+        return cf;
+    }
+
+    @Override
     public @NotNull CompletableFuture<Void> runLaterSync(@NotNull Runnable task, long delayTicks) {
         CompletableFuture<Void> cf = new CompletableFuture<>();
         Bukkit.getScheduler().runTaskLater(plugin, () -> {
@@ -110,4 +143,3 @@ public final class DefaultSchedulerService implements SchedulerService {
         }
     }
 }
-

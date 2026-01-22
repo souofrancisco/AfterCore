@@ -17,6 +17,7 @@ Este documento contém 12 exemplos práticos e prontos para uso do Inventory Fra
 11. [Dynamic Titles with Placeholders](#11-dynamic-titles-with-placeholders)
 12. [Click Type Handlers - Diferentes Tipos de Click](#12-click-type-handlers---diferentes-tipos-de-click)
 13. [Variants & Extended Actions - Itens Condicionais](#13-variants--extended-actions---itens-condicionais)
+14. [Sequential Actions - Delays & Visual Feedback](#14-sequential-actions---delays--visual-feedback)
 
 ---
 
@@ -1681,6 +1682,57 @@ inventories:
             fail:
               - "sound: VILLAGER_NO"
               - "message: &cEsvazie seu inventário primeiro!"
+
+---
+
+## 14. Sequential Actions - Delays & Visual Feedback
+
+### Objetivo
+Criar sequências de ações com pausas (`wait`) para cutscenes simples, animações de recompensa ou unboxing.
+
+### YAML
+```yaml
+inventories:
+  daily_reward:
+    title: "&6&lRecompensa Diária"
+    size: 27
+
+    items:
+      chest_closed:
+        slot: 13
+        material: CHEST
+        name: "&eAbrir Baú"
+        lore:
+          - "&7Clique para abrir!"
+        
+        click_actions:
+          # Passo 1: Som inicial
+          - "sound: BLOCK_CHEST_OPEN"
+          - "message: &eAbrindo..."
+          
+          # Passo 2: Delay (20 ticks = 1s)
+          - "wait: 20"
+          
+          # Passo 3: Efeito visual + Som
+          - "sound: ENTITY_FIREWORK_ROCKET_LAUNCH"
+          - "message: &eRevirando itens..."
+          
+          # Passo 4: Mais delay
+          - "wait: 20"
+          
+          # Passo 5: Recompensa final
+          - "sound: UI_TOAST_CHALLENGE_COMPLETE"
+          - "title: &6&lPARABÉNS!;&7Você ganhou 100 moedas;10;70;20"
+          - "console: eco give %player% 100"
+          - "close"
+```
+
+### Notas Importantes
+1. **Async Execution**: A `wait` action transfere a execução para uma thread assíncrona, liberando o servidor.
+2. **Main Thread Safety**: Actions que requerem main thread (como `title`, `sound`, modificar inventário) são automaticamente sincronizadas.
+   - Isso garante que você pode misturar `wait` com qualquer outra action sem crashar o server.
+3. **Bloqueio de GUI**: Enquanto uma sequência `wait` roda, o inventário permanece interativo (a menos que você feche ou trave via código custom).
+
 ```
 
 ### Explicação
