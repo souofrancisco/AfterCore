@@ -19,7 +19,7 @@ public final class MotionActionDialect implements ActionDialect {
             Pattern.compile("^@(tick|event):([A-Za-z_]+|\\d+)(?::(\\d+))?\\s*");
 
     private static final Pattern ACTION_PATTERN =
-            Pattern.compile("([a-z_]+)(?:\\[([A-Z]+(?::\\d+)?)\\])?:\\s*(.+)$");
+            Pattern.compile("([a-z_]+)(?:\\[([A-Z]+(?::\\d+)?)\\])?(?::\\s*(.+))?$");
 
     @Override
     public boolean supports(@NotNull String line) {
@@ -68,6 +68,10 @@ public final class MotionActionDialect implements ActionDialect {
             String typeKey = actionMatcher.group(1).trim().toLowerCase();
             String scopeStr = actionMatcher.group(2);
             String args = actionMatcher.group(3);
+            // Convert null args to empty string (for actions without parameters like "pause")
+            if (args == null) {
+                args = "";
+            }
 
             ActionScope scope = ActionScope.VIEWER;
             int radius = 30;

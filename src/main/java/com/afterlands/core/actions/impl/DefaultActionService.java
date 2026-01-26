@@ -53,9 +53,15 @@ public final class DefaultActionService implements ActionService {
     /**
      * Normalizes action format for compatibility.
      * Converts alternative formats to standard format:
-     * - For all actions: replaces ";" with " " in arguments
+     * - For simple actions: replaces ";" with " " in arguments
+     * - Skip normalization for MotionActionDialect (actions starting with @)
      */
     private String normalizeAction(String action) {
+        // Skip normalization for MotionActionDialect format (@tick:, @event:)
+        if (action.startsWith("@")) {
+            return action;
+        }
+
         int colonIndex = action.indexOf(':');
         if (colonIndex > 0 && colonIndex < action.length() - 1) {
             String type = action.substring(0, colonIndex + 1);
