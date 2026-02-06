@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Ensures consistent message handling (placeholders, storage) via the core service.
   - Removed Fully Qualified Names (FQN) usage.
   - Implemented lazy proxy in `DefaultMessageService` to auto-detect and delegate to external providers (e.g. AfterLanguage).
+- Minor fixes.
 
 ## [1.5.2] - 2026-01-26
 
