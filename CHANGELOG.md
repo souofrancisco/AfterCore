@@ -5,6 +5,22 @@ All notable changes to AfterCore will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.4] - 2026-02-06 (Inventory Fixes)
+
+### Fixed (Inventory Framework)
+- **Inventory Title Flicker/Empty Bug**:
+  - Implemented logic in `InventoryViewHolder.open()` to pre-calculate the title before opening the inventory window.
+  - Fixes flickering and "empty inventory" issues caused by title updates triggering inventory swaps post-open.
+  - Added `reopening` flag to prevent premature resource cleanup during title swaps.
+- **Title Validation**:
+  - `validateTitle()` now correctly ignores color codes when checking the 32-character limit.
+  - Added smart truncation (preserving colors) instead of aggressive "Inventory" fallback for long titles.
+- **Per-Item Placeholders**:
+  - Fixed `InventoryViewHolder` to resolve placeholders via `context` *before* title validation.
+  - Added support for `{lastpage}`, `{nextpage}`, `{has_next_page}` placeholders in titles.
+- **Inventory IDs**:
+  - Audited and corrected inventory ID mismatches (e.g. incorrect use of `editor` vs `actions-editor`).
+
 ## [1.5.3] - 2026-02-05
 
 ### Changed

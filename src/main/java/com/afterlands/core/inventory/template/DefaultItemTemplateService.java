@@ -6,6 +6,7 @@ import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.function.Function;
@@ -24,6 +25,13 @@ public class DefaultItemTemplateService implements ItemTemplateService {
         this.configLookup = configLookup;
     }
 
+    @Override
+    public @Nullable GuiItem.Builder loadTemplate(@NotNull String inventoryId, @NotNull String itemId) {
+        // Use deprecated method with empty map to avoid resolving any placeholders
+        return loadTemplate(inventoryId, itemId, Collections.emptyMap());
+    }
+
+    @Deprecated
     @Override
     public @Nullable GuiItem.Builder loadTemplate(@NotNull String inventoryId, @NotNull String itemId,
             @NotNull Map<String, String> placeholders) {

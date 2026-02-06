@@ -614,6 +614,33 @@ lore:
 
 **Nota**: PlaceholderAPI roda na main thread. Evite usar em ações async.
 
+### Inventory Title Placeholders (v1.5.4+)
+
+Título do inventário suporta placeholders dinâmicos (atualizados automaticamente na paginação):
+
+- `{page}` - Página atual
+- `{lastpage}` / `{total_pages}` - Última página / Total de páginas
+- `{nextpage}` - Próxima página (número)
+- `{prevpage}` - Página anterior (número)
+- `{has_next_page}` - "true" se houver próxima página
+- `{has_previous_page}` - "true" se houver página anterior
+
+Exemplo:
+```yaml
+title: "&8Menu &7({page}/{lastpage})"
+```
+
+### Per-Item Context Placeholders (v1.5.4+)
+
+Em listas e loops (como `animation-list` ou `frames`), cada item pode ter placeholders exclusivos baseados no contexto de geração:
+
+- `{index}` - Índice do item na lista
+- `{alias}` - Nome/Alias do item
+- `{<key>}` - Qualquer chave passada pelo `ContentProvider`
+
+Estes placeholders são processados *antes* do cache, permitindo itens únicos mas performáticos.
+
+
 ---
 
 ## Error Handling

@@ -65,6 +65,9 @@ public class GuiItem {
     private final List<String> variantRefs;
     private final List<GuiItem> inlineVariants;
 
+    // Per-item placeholders (merged with InventoryContext during compilation)
+    private final Map<String, String> itemPlaceholders;
+
     private GuiItem(Builder builder) {
         this.slot = builder.slot;
         this.material = builder.material;
@@ -93,6 +96,7 @@ public class GuiItem {
         this.customModelData = builder.customModelData;
         this.variantRefs = List.copyOf(builder.variantRefs);
         this.inlineVariants = List.copyOf(builder.inlineVariants);
+        this.itemPlaceholders = Map.copyOf(builder.itemPlaceholders);
     }
 
     /**
@@ -322,6 +326,21 @@ public class GuiItem {
     }
 
     /**
+     * Obtém os placeholders específicos deste item.
+     * 
+     * <p>
+     * Estes placeholders serão mesclados com o InventoryContext global
+     * durante a compilação pelo ItemCompiler.
+     * </p>
+     * 
+     * @return Map imutável de placeholders
+     */
+    @NotNull
+    public Map<String, String> getItemPlaceholders() {
+        return itemPlaceholders;
+    }
+
+    /**
      * Obtém os handlers de click configurados.
      *
      * <p>
@@ -390,6 +409,7 @@ public class GuiItem {
         private int customModelData = -1;
         private List<String> variantRefs = new ArrayList<>();
         private List<GuiItem> inlineVariants = new ArrayList<>();
+        private Map<String, String> itemPlaceholders = new HashMap<>();
 
         public Builder slot(int slot) {
             this.slot = slot;
@@ -558,6 +578,37 @@ public class GuiItem {
 
         public Builder addInlineVariant(GuiItem variant) {
             this.inlineVariants.add(variant);
+            return this;
+        }
+
+        /**
+         * Adiciona placeholder específico para este item.
+         * 
+         * <p>
+         * Estes placeholders são mesclados com o InventoryContext global
+         * durante a compilação pelo ItemCompiler, permitindo valores únicos
+         * por item em listas.
+         * </p>
+         * 
+         * @param key   Chave do placeholder (sem chaves)
+         * @param value Valor do placeholder
+         * @return this para chaining
+         */
+        @NotNull
+        public Builder withPlaceholder(@NotNull String key, @NotNull String value) {
+            this.itemPlaceholders.put(key, value);
+            return this;
+        }
+
+        /**
+         * Adiciona múltiplos placeholders para este item.
+         * 
+         * @param placeholders Map de placeholders
+         * @return this para chaining
+         */
+        @NotNull
+        public Builder withPlaceholders(@NotNull Map<String, String> placeholders) {
+            this.itemPlaceholders.putAll(placeholders);
             return this;
         }
 

@@ -90,21 +90,34 @@ public class ItemCompiler {
             @NotNull GuiItem item,
             @Nullable Player player,
             @NotNull InventoryContext context) {
+
+        // Mesclar item placeholders com context global
+        // Item placeholders têm prioridade (override)
+        InventoryContext mergedContext = context;
+        if (!item.getItemPlaceholders().isEmpty()) {
+            mergedContext = context.copy();
+            mergedContext.withPlaceholders(item.getItemPlaceholders());
+        }
+
         // Determina se item é cacheável
+        // NOTE: hasDynamicPlaceholders() now includes context placeholders ({key})
+        // so items with {duration}, {alias}, etc. will be treated as dynamic
         boolean isCacheable = isCacheable(item);
 
         if (isCacheable) {
             // Tenta obter do cache
-            CacheKey cacheKey = buildCacheKey(item, context);
+            CacheKey cacheKey = buildCacheKey(item, mergedContext);
 
+            InventoryContext finalContext = mergedContext;
             return cache.get(
                     cacheKey,
-                    () -> compileInternal(item, player, context),
+                    () -> compileInternal(item, player, finalContext),
                     scheduler::runSync);
         } else {
             // Item dinâmico: compila sempre
+            InventoryContext finalContext = mergedContext;
             return CompletableFuture.supplyAsync(
-                    () -> compileInternal(item, player, context),
+                    () -> compileInternal(item, player, finalContext),
                     scheduler::runSync);
         }
     }
@@ -262,24 +275,32 @@ public class ItemCompiler {
             return false;
         }
 
-        // Verifica se contém placeholders dinâmicos
-        boolean hasDynamic = false;
+        // Verifica se contém placeholders voláteis (PlaceholderAPI)
+        // Itens com placeholders de contexto ({key}) AGORA SÃO CACHEÁVEIS
+        // pois usamos CacheKey.ofDynamic que inclui o contexto.
+        boolean hasVolatile = false;
 
         if (item.getName() != null) {
-            hasDynamic |= placeholderResolver.hasDynamicPlaceholders(item.getName());
+            hasVolatile |= placeholderResolver.hasVolatilePlaceholders(item.getName());
         }
 
         if (item.getLore() != null) {
             for (String line : item.getLore()) {
-                hasDynamic |= placeholderResolver.hasDynamicPlaceholders(line);
+                hasVolatile |= placeholderResolver.hasVolatilePlaceholders(line);
             }
         }
 
         if (item.getHeadValue() != null) {
-            hasDynamic |= placeholderResolver.hasDynamicPlaceholders(item.getHeadValue());
+            hasVolatile |= placeholderResolver.hasVolatilePlaceholders(item.getHeadValue());
         }
 
-        return !hasDynamic;
+        // Log apenas se volátil (não cacheável)
+        if (hasVolatile) {
+            logger.info("[ItemCompiler] DEBUG: Item type=" + item.getType() +
+                    " has volatile placeholders -> NOT CACHEABLE");
+        }
+
+        return !hasVolatile;
     }
 
     /**
@@ -293,12 +314,30 @@ public class ItemCompiler {
     private CacheKey buildCacheKey(@NotNull GuiItem item, @NotNull InventoryContext context) {
         String itemKey = item.getType() + ":" + item.getSlot();
 
-        if (isCacheable(item)) {
+        // Check if item depends on context keys ({key} or {lang:...})
+        boolean isContextDependent = false;
+
+        if (item.getName() != null) {
+            isContextDependent |= placeholderResolver.hasContextAwarePlaceholders(item.getName());
+        }
+        if (!isContextDependent && item.getLore() != null) {
+            for (String line : item.getLore()) {
+                if (placeholderResolver.hasContextAwarePlaceholders(line)) {
+                    isContextDependent = true;
+                    break;
+                }
+            }
+        }
+        if (!isContextDependent && item.getHeadValue() != null) {
+            isContextDependent |= placeholderResolver.hasContextAwarePlaceholders(item.getHeadValue());
+        }
+
+        if (isContextDependent) {
+            // Item dinâmico (depende do contexto): inclui hash dos placeholders
+            return CacheKey.ofDynamic(context.getInventoryId(), itemKey, context.getPlaceholders());
+        } else {
             // Item estático: cache simples
             return CacheKey.ofStatic(context.getInventoryId(), itemKey);
-        } else {
-            // Item dinâmico: inclui hash dos placeholders
-            return CacheKey.ofDynamic(context.getInventoryId(), itemKey, context.getPlaceholders());
         }
     }
 

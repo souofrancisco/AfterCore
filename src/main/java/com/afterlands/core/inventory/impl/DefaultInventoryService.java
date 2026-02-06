@@ -230,6 +230,13 @@ public class DefaultInventoryService implements InventoryService {
         }
 
         try {
+            // Invalidate any cached items for this inventory to ensure fresh rendering
+            itemCompiler.invalidateCache(config.id());
+
+            // Remove existing active inventory entry to ensure clean state
+            // Note: The holder's cleanup is handled by the new holder's constructor
+            activeInventories.remove(player.getUniqueId());
+
             // Cria holder (com ItemCompiler para renderização otimizada)
             InventoryViewHolder holder = new InventoryViewHolder(
                     ownerPlugin,

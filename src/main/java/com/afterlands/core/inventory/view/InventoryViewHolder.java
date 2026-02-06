@@ -83,6 +83,7 @@ public class InventoryViewHolder implements Listener {
     // Current page for pagination
     private int currentPage = 1;
     private List<GuiItem> contentItems = new ArrayList<>();
+    private boolean contentItemsLoaded = false; // Flag to prevent reloading on page change
 
     // Map slot -> GuiItem for quick lookup
     private final Map<Integer, GuiItem> slotToGuiItem = new HashMap<>();
@@ -129,6 +130,12 @@ public class InventoryViewHolder implements Listener {
 
         createInventory();
 
+        // Cleanup any existing holder for this player to prevent orphaned holders
+        InventoryViewHolder existingHolder = activeHolders.get(player.getUniqueId());
+        if (existingHolder != null && existingHolder != this) {
+            existingHolder.cleanupWithoutClose();
+        }
+
         // Register in static map
         activeHolders.put(player.getUniqueId(), this);
 
@@ -155,56 +162,65 @@ public class InventoryViewHolder implements Listener {
     /**
      * Validates and fixes inventory title to fit 1.8.8 limit (32 chars).
      *
-     * <p>Does NOT truncate. Instead, tries fallback strategies:</p>
+     * <p>
+     * Does NOT truncate. Instead, tries fallback strategies:
+     * </p>
      * <ol>
-     *     <li>If resolved title exceeds 32 chars, log warning and try raw config title</li>
-     *     <li>If raw title also exceeds, use simple fallback "Inventory"</li>
+     * <li>If resolved title exceeds 32 chars, log warning and try raw config
+     * title</li>
+     * <li>If raw title also exceeds, use simple fallback "Inventory"</li>
      * </ol>
      *
      * @param resolvedTitle Title with placeholders resolved and formatted
-     * @param rawTitle Raw title from config (before resolution)
+     * @param rawTitle      Raw title from config (before resolution)
      * @return Valid title (max 32 chars)
      */
     @NotNull
     private String validateTitle(@NotNull String resolvedTitle, @NotNull String rawTitle) {
         final int MAX_TITLE_LENGTH = 32;
 
-        // Strip color codes for length calculation (color codes don't count towards limit)
-        String strippedTitle = org.bukkit.ChatColor.stripColor(resolvedTitle);
+        // Ensure we are working with § codes for correct length check
+        String titleToCheck = resolvedTitle.contains("&") ? resolvedTitle.replace("&", "§") : resolvedTitle;
+
+        // Strip color codes for length calculation (color codes don't count towards
+        // limit)
+        String strippedTitle = org.bukkit.ChatColor.stripColor(titleToCheck);
 
         if (strippedTitle.length() <= MAX_TITLE_LENGTH) {
-            return resolvedTitle; // OK
+            return titleToCheck; // OK
         }
 
-        // Title exceeds limit - log warning and try fallback
+        // Title exceeds limit - log warning and truncate
         boolean debug = plugin.getConfig().getBoolean("debug", false);
         if (debug) {
             plugin.getLogger().warning(
-                "[InventoryViewHolder] Title exceeds 32 char limit (" + strippedTitle.length() + " chars): " +
-                "'" + strippedTitle + "' for inventory: " + config.id()
-            );
+                    "[InventoryViewHolder] Title exceeds 32 chars (" + strippedTitle.length() + "): '"
+                            + strippedTitle + "'. Truncating.");
         }
 
-        // Fallback 1: Try raw config title (without placeholder resolution)
-        String fallbackTitle = rawTitle.replace("&", "§");
-        String strippedFallback = org.bukkit.ChatColor.stripColor(fallbackTitle);
+        // Truncate logic:
+        // 1. We start from the titleToCheck (with § codes)
+        // 2. We allow at most 32 VISIBLE characters
+        // But Bukkit 1.8.8 limit is actually 32 CHARACTERS TOTAL in the packet string
+        // for window title?
+        // Wait, standard 1.7/1.8 limits are 32 chars INCLUDING color codes usually for
+        // custom names,
+        // but for Inventory Titles it allows 32 chars value.
+        // Actually, Spigot 1.8.8 verifies absolute length of the string passed to
+        // packet.
 
-        if (strippedFallback.length() <= MAX_TITLE_LENGTH) {
-            if (debug) {
-                plugin.getLogger().warning(
-                    "[InventoryViewHolder] Using fallback (raw config) title: '" + strippedFallback + "'"
-                );
+        // Safe bet: Truncate the string absolute length to 32.
+        // But preventing color code split (e.g. at position 31 matches '§')
+
+        if (titleToCheck.length() > MAX_TITLE_LENGTH) {
+            String truncated = titleToCheck.substring(0, MAX_TITLE_LENGTH);
+            if (truncated.endsWith("§")) {
+                truncated = truncated.substring(0, truncated.length() - 1);
             }
-            return fallbackTitle;
+            return truncated;
         }
 
-        // Fallback 2: Use simple generic title
-        if (debug) {
-            plugin.getLogger().warning(
-                "[InventoryViewHolder] Raw title also exceeds limit. Using generic fallback."
-            );
-        }
-        return "Inventory";
+        return titleToCheck;
     }
 
     /**
@@ -299,13 +315,18 @@ public class InventoryViewHolder implements Listener {
         }
 
         // Load contentItems from context if available (for pagination)
-        @SuppressWarnings("unchecked")
-        List<GuiItem> contextContentItems = context.getData("contentItems", List.class).orElse(null);
-        if (contextContentItems != null && !contextContentItems.isEmpty()) {
-            this.contentItems = new ArrayList<>(contextContentItems);
-            if (debug) {
-                plugin.getLogger()
-                        .info("[ViewHolder] DEBUG: Loaded " + contentItems.size() + " content items from context");
+        // Only load ONCE per holder lifecycle to prevent reset on page navigation
+        if (!contentItemsLoaded) {
+            @SuppressWarnings("unchecked")
+            List<GuiItem> contextContentItems = context.getData("contentItems", List.class).orElse(null);
+            if (contextContentItems != null && !contextContentItems.isEmpty()) {
+                this.contentItems = new ArrayList<>(contextContentItems);
+                this.contentItemsLoaded = true;
+                if (debug) {
+                    plugin.getLogger()
+                            .info("[ViewHolder] DEBUG: Loaded " + contentItems.size()
+                                    + " content items from context");
+                }
             }
         }
 
@@ -417,7 +438,11 @@ public class InventoryViewHolder implements Listener {
 
             // Update context with pagination placeholders
             context.withPlaceholder("page", String.valueOf(page.currentPage()));
+            context.withPlaceholder("nextpage", String.valueOf(page.currentPage() + 1));
             context.withPlaceholder("total_pages", String.valueOf(page.totalPages()));
+            context.withPlaceholder("lastpage", String.valueOf(page.totalPages()));
+            context.withPlaceholder("has_next_page", String.valueOf(page.hasNextPage()));
+            context.withPlaceholder("has_previous_page", String.valueOf(page.hasPreviousPage()));
         }
 
         // 4. Fill empty slots with filler item if duplicate: all was used (AFTER
@@ -491,6 +516,23 @@ public class InventoryViewHolder implements Listener {
             return;
         }
 
+        // Check if title needs update due to context changes (e.g. pagination {page})
+        // This avoids opening with wrong title then swapping (flicker/empty bug)
+        String resolved = context.resolvePlaceholders(config.title());
+        if (!resolved.equals(currentTitle)) {
+            // Update cache
+            currentTitle = resolved;
+
+            // Recreate inventory with correct title
+            // Translate colors BEFORE validation to ensure counts are correct
+            String translated = resolved.replace("&", "§");
+            String formatted = validateTitle(translated, config.title());
+            this.inventory = Bukkit.createInventory(null, inventory.getSize(), formatted);
+
+            // Re-render items into new inventory
+            renderItems();
+        }
+
         player.openInventory(inventory);
 
         // Inicia animações após abrir inventário
@@ -533,6 +575,29 @@ public class InventoryViewHolder implements Listener {
         InventoryCloseEvent.getHandlerList().unregister(this);
         InventoryClickEvent.getHandlerList().unregister(this);
         InventoryDragEvent.getHandlerList().unregister(this);
+    }
+
+    /**
+     * Cleanup resources without closing the player's inventory.
+     *
+     * <p>
+     * Used when replacing a holder with a new one for the same player.
+     * This prevents the old holder from interfering with the new one.
+     * </p>
+     */
+    private void cleanupWithoutClose() {
+        // Stop animations for this holder
+        stopAnimations();
+
+        // Cancel any active drag session
+        dragHandler.cancelDrag(player.getUniqueId());
+
+        // Unregister event listeners to prevent double-handling
+        InventoryCloseEvent.getHandlerList().unregister(this);
+        InventoryClickEvent.getHandlerList().unregister(this);
+        InventoryDragEvent.getHandlerList().unregister(this);
+
+        // Note: Don't remove from activeHolders - the new holder will overwrite
     }
 
     /**
@@ -615,25 +680,47 @@ public class InventoryViewHolder implements Listener {
      * <b>Thread:</b> Main thread only.
      * </p>
      */
+    private boolean reopening = false;
+
+    /**
+     * Fallback: reabre inventário com novo título.
+     *
+     * <p>
+     * Usado quando ProtocolLib não está disponível.
+     * </p>
+     *
+     * <p>
+     * <b>Thread:</b> Main thread only.
+     * </p>
+     */
     private void reopenWithNewTitle(@NotNull String newTitle) {
-        // Para animações antes de fechar
-        stopAnimations();
+        // Set reopening flag to prevent cleanup in onInventoryClose
+        this.reopening = true;
 
-        // Fechar inventário atual
-        player.closeInventory();
+        try {
+            // Para animações antes de fechar
+            stopAnimations();
 
-        // Criar novo inventário com novo título
-        String formatted = newTitle.replace("&", "§");
-        this.inventory = Bukkit.createInventory(null, inventory.getSize(), formatted);
+            // NÃO chamar cleanInventory() explicitamente, pois openInventory()
+            // já faz o swap corretamente no Bukkit e evita packets redundantes.
 
-        // Re-renderizar itens
-        renderItems();
+            // Criar novo inventário com novo título
+            String formatted = newTitle.replace("&", "§");
+            this.inventory = Bukkit.createInventory(null, inventory.getSize(), formatted);
 
-        // Reabrir
-        player.openInventory(inventory);
+            // Re-renderizar itens
+            renderItems();
 
-        // Reiniciar animações
-        startAnimations();
+            // Reabrir (fecha o anterior automaticamente)
+            player.openInventory(inventory);
+
+            // Reiniciar animações
+            startAnimations();
+        } finally {
+            // Reset flag (in case logic runs synchronously)
+            // Note: InventoryCloseEvent fires synchronously during openInventory() usually
+            this.reopening = false;
+        }
 
         // Atualizar cache
         currentTitle = newTitle;
@@ -694,6 +781,10 @@ public class InventoryViewHolder implements Listener {
         }
 
         renderItems();
+
+        // Update title to reflect new page or other changes
+        // This is safe because updateTitle() has internal caching
+        updateTitle(config.title());
     }
 
     // ========== Pagination Methods ==========
@@ -1014,6 +1105,11 @@ public class InventoryViewHolder implements Listener {
 
         // Check if it's the correct player
         if (!closedPlayer.getUniqueId().equals(player.getUniqueId())) {
+            return;
+        }
+
+        // Check if we are reopening (replacing inventory)
+        if (reopening) {
             return;
         }
 

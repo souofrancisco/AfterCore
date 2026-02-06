@@ -1757,3 +1757,80 @@ inventories:
    - **success**: Actions executadas se condições forem true.
    - **fail**: Actions executadas se condições forem false.
 
+## 15. Dynamic Lists with Per-Item Context (v1.5.3+)
+
+### Objetivo
+Renderizar listas de objetos complexos (ex: Frames de Animação) onde cada item tem dados únicos, usando o sistema de "Per-Item Context" para alta performance e cache inteligente.
+
+### Problema (Abordagem Antiga Deprecada)
+Antigamente, resolvia-se placeholders na carga do template:
+```java
+// ❌ INCORRETO (Deprecated)
+// Isso quebra o cache pois cria um novo item único para cada entrada, enchendo a memória
+templateService.loadTemplate("inv", "item", Map.of("{index}", "1", "{duration}", "50"));
+```
+
+### Solução (Per-Item Context)
+Use o novo método `withReplacing` no builder do `GuiItem`. O `AfterCore` vai entender que isso é um "contexto local" do item e resolver os placeholders *antes* de tentar fazer cache, mantendo a eficiência.
+
+### YAML (`inventories.yml`)
+```yaml
+inventories:
+  animation_list:
+    title: "&8Frames"
+    size: 54
+    
+    items:
+      frame_template:
+        material: ITEM_FRAME
+        display_name: "&eFrame #%index%"  # Placeholder Per-Item
+        lore:
+          - "&7Duração: &f%duration% ticks"
+          - "&7Blocos: &f%blocks%"
+        type: frame_item 
+```
+
+### Java (ContentProvider)
+```java
+public class FrameContentProvider implements InventoryContentProvider {
+
+    @Override
+    public void init(InventoryViewHolder holder) {
+        // Nada estático
+    }
+
+    @Override
+    public void update(InventoryViewHolder holder) {
+        List<Frame> frames = getFrames(); // Sua lógica
+
+        // Renderiza itens dinamicamente
+        for (int i = 0; i < frames.size(); i++) {
+            Frame frame = frames.get(i);
+            
+            // 1. Carrega template RAW (com placeholders %index%, %duration% intactos)
+            GuiItem.Builder builder = templateService.loadTemplate("animation_list", "frame_template");
+            
+            if (builder == null) continue;
+
+            // 2. Define o contexto Per-Item
+            // Placeholders definidos aqui sobrescrevem globais apenas para este item
+            builder.withPlaceholder("{index}", String.valueOf(i))
+                   .withPlaceholder("{duration}", String.valueOf(frame.getDuration()))
+                   .withPlaceholder("{blocks}", String.valueOf(frame.getBlockCount()));
+            
+            // 3. Define ação específica (usando contexto se necessário)
+            builder.setAction(ctx -> {
+               ctx.player().sendMessage("Você clicou no frame " + frame.getId()); 
+            });
+
+            // 4. Adiciona ao inventário
+            holder.addItem(builder.build());
+        }
+    }
+}
+```
+
+### Por que isso é melhor?
+1. **Cache Inteligente**: O `ItemCompiler` sabe distinguir o que é template do que é valor dinâmico.
+2. **Menos Memória**: Strings duplicadas (ex: lores idênticas) são deduplicadas internamente.
+3. **Performance**: Placeholders são resolvidos na hora certa, evitando re-processamento de todo o item se apenas um número mudou.
