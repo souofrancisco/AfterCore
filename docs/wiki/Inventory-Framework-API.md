@@ -1,737 +1,423 @@
-# AfterCore Inventory Framework - API Reference
+## Inventory Framework API (AfterCore 1.5.6)
 
-Referência completa da API pública do Inventory Framework.
+Referência técnica do framework de inventários do AfterCore (v1.5.6), baseada no código atual em `src/main/java/com/afterlands/core/inventory`.
 
-## Índice
+### Navegação rápida
 
-1. [Core Services](#core-services)
-2. [Configuration Schema](#configuration-schema)
-3. [Built-in Actions](#built-in-actions)
-4. [Placeholders](#placeholders)
-5. [Error Handling](#error-handling)
+- [Visão geral do serviço](InventoryService.md)
+- [Exemplos funcionais (Java + YAML)](Inventory-Framework-Examples.md)
 
----
+## 1) Contratos públicos
 
-## Core Services
+### `InventoryService`
 
-### InventoryService
-
-Interface principal para gerenciamento de inventários.
+Interface principal do framework.
 
 ```java
 public interface InventoryService {
-    // Abrir inventário (do plugin AfterCore)
     void openInventory(Player player, String inventoryId, InventoryContext context);
-    
-    // Abrir inventário de outro plugin
-    void openInventory(Player player, Plugin plugin, String inventoryId, InventoryContext context);
+    void openInventory(Plugin plugin, Player player, String inventoryId, InventoryContext context);
+    String openSharedInventory(List<Player> players, String inventoryId, InventoryContext context);
+    void closeInventory(Player player);
 
-    // Abrir inventário compartilhado
-    void openSharedInventory(Player player, String inventoryId, String sessionId, InventoryContext context);
+    CompletableFuture<Void> saveInventoryState(UUID playerId, String inventoryId, InventoryState state);
+    CompletableFuture<InventoryState> loadInventoryState(UUID playerId, String inventoryId);
 
-    // Obter estado do inventário
-    Optional<InventoryState> getState(UUID playerId);
+    CompletableFuture<Void> reloadConfigurations();
 
-    // Atualizar inventário
-    void refreshInventory(Player player);
+    void clearCache();
+    void clearCache(String inventoryId);
+    void invalidateItemCache(String inventoryId);
+    void clearPlayerCache(UUID playerId);
 
-    // Persistência
-    CompletableFuture<Void> saveState(UUID playerId, String inventoryId, InventoryState state);
-    CompletableFuture<InventoryState> loadState(UUID playerId, String inventoryId);
+    ItemTemplateService templates();
 
-    // Shared inventory
-    Optional<SharedInventoryContext> getSharedContext(String sessionId);
-    void broadcastUpdate(String sessionId, int slot, ItemStack item);
-    
-    // Carregar inventários de outro plugin
-    void loadFromPlugin(Plugin plugin);
+    boolean isInventoryRegistered(String inventoryId);
+    void registerInventory(InventoryConfig config);
+    int registerInventories(File file);
+    int registerInventories(Plugin plugin, File file);
+
+    void registerTypeHandler(String itemType, ClickHandler handler);
 }
 ```
 
-> **Nota**: `openInventory(Player, Plugin, inventoryId, context)` permite abrir inventários definidos
-> em outros plugins que usam AfterCore. O plugin deve ter chamado `loadFromPlugin()` previamente.
+Thread model:
 
-### InventoryContext
+- `open*` e `closeInventory`: main thread
+- `save/load/reload`: async
+- cache/register/check: thread-safe
 
-Context builder para abrir inventários com placeholders.
-
-```java
-InventoryContext ctx = InventoryContext.builder(player)
-    .withPlaceholder("key", "value")
-    .withData("custom_key", customObject)
-    .build();
-```
-
-### InventoryState
-
-Estado mutável de um inventário aberto.
+### `InventoryContext`
 
 ```java
-Optional<InventoryState> state = inv.getState(player.getUniqueId());
-state.ifPresent(s -> {
-    // Modificar item
-    s.setItem(10, new ItemStack(Material.DIAMOND));
-
-    // Paginação
-    s.setCurrentPage(2);
-    s.addPaginatedItem(item);
-
-    // Tabs
-    s.setCurrentTab("weapons");
-
-    // Custom data
-    s.setData("coins", 1000);
-    int coins = (int) s.getData("coins", 0);
-
-    // Marcar como dirty (necessita save)
-    s.markDirty();
-});
+InventoryContext ctx = new InventoryContext(player.getUniqueId(), "main-menu")
+        .withPlaceholder("player", player.getName())
+        .withData("key", value)
+        .withPluginNamespace("aftertemplate");
 ```
 
----
+- Placeholders de contexto: `{key}`
+- PlaceholderAPI: `%placeholder%` (se instalado)
+- i18n helper: `{lang:namespace:key}` no `PlaceholderResolver`
 
-## Configuration Schema
+### `InventoryState`
 
-### Estrutura Básica
+Record imutável persistido no DB:
+
+- `stateData` (`Map<String, Object>`)
+- `tabStates` (`Map<String, Integer>`)
+- `customData` (`Map<String, Object>`)
+- `updatedAt`
+- `schemaVersion`
+
+### `GuiItem`
+
+Modelo de item de GUI com builder fluente.
+Inclui material/meta/NBT/click handlers/conditions/variants/drag/animacoes.
+
+### `ClickContext`
+
+Contexto de click entregue para handlers programáticos:
+
+- `player`, `holder`, `item`, `inventoryContext`, `event`, `clickType`, `slot`
+- helpers: `nextPage()`, `previousPage()`, `switchTab(tabId)`, `close()`, `refresh()`, `sendMessage(message)`
+
+### `ItemTemplateService`
+
+```java
+GuiItem.Builder builder = core.inventory().templates().loadTemplate("my-menu", "frame-template");
+```
+
+Observação importante:
+
+- implementação atual (`DefaultItemTemplateService`) clona principalmente `type`, `material`, `name` e `lore`.
+- se você precisa copiar outras propriedades, ajuste no builder após o `loadTemplate(...)`.
+- prefira `loadTemplate(inventoryId, itemId)` (sem resolver placeholders na hora). O overload deprecated que resolve placeholders antecipadamente pode causar itens “congelados” no cache.
+
+## 2) Ordem de execução no click
+
+Pipeline real em `InventoryActionHandler.handleClick(...)`:
+
+1. `click-conditions` do item
+2. handler por `type` registrado via `registerTypeHandler`
+3. handler programatico do `ClickHandlers` (lambdas)
+4. actions YAML do tipo de click (`on_left_click`, etc.)
+5. fallback para `actions`
+
+`ConfiguredAction` suporta:
+
+- `conditions` (lista)
+- `success` (lista)
+- `fail` (lista)
+
+## 2.1) Actions dentro de inventários (o que roda aqui)
+
+Dentro de inventários, você pode executar dois “tipos” de action:
+
+### A) Actions do próprio framework de inventário (navegação/controle)
+
+Essas actions são tratadas pelo `InventoryActionHandler` e dependem do `InventoryViewHolder` atual:
+
+- `open_panel: <inventoryId>` (alias: `open: <inventoryId>`)
+- `previous_panel` (alias: `back`)
+- `switch_tab: <tabId>`
+- `next_page`
+- `prev_page`
+- `refresh`
+- `close`
+
+**Importante:** o parser de actions do inventário aceita apenas nomes no formato `^[a-z_]+` (ou seja, use **underscore**, sem hífen).
+
+### B) Actions padrão do AfterCore (`ActionService`)
+
+Qualquer action suportada pelo `ActionService` pode ser usada em `actions` / `on_*_click`. Exemplos comuns:
+
+```yaml
+actions:
+  - "message: &aOlá!"
+  - "sound: CLICK"
+  - "player_command: menu"
+  - "console_command: give %player_name% diamond 1"
+```
+
+Observação: para comandos como console, o nome correto é **`console_command:`** (não `console:`).
+
+## 3) Schema YAML
+
+## 3.1 Estrutura de arquivo
+
+### Arquivo principal do AfterCore (`plugins/AfterCore/inventories.yml`)
 
 ```yaml
 config-version: 1
 
-# Itens reutilizáveis (herança via item:refName)
 default-items:
   filler:
     material: STAINED_GLASS_PANE
     data: 15
     name: " "
-    hide-flags: true
-  
-  back-button:
-    material: ARROW
-    name: "&cVoltar"
-    actions:
-      - "previous_panel"
 
 inventories:
-  inventory_id:
-    title: "&aTitle"
-    size: 54
-
-    items:
-      "0-8":
-        material: "item:filler"  # Referência ao default-item
-      "49":
-        material: "item:back-button"
-        name: "&e← Voltar"  # Override do nome
-    
-    animations: []
-    pagination: {}
-    tabs: {}
-    drag_settings: {}
-    persistence: {}
+  main-menu:
+    title: "&8Menu"
+    size: 3
+    items: {}
 ```
 
-### registerTypeHandler (Java API)
+### Arquivo externo via `registerInventories(file)`
 
-Registrar handlers programáticos para tipos de item:
+`loadConfigs(file)` aceita dois formatos:
 
-```java
-// Registrar handler para itens com type: "pagination_item"
-inventoryService.registerTypeHandler("pagination_item", ctx -> {
-    Player player = ctx.player();
-    GuiItem item = ctx.item();
-    
-    // Lógica customizada
-    player.sendMessage("Clicou no item: " + item.getName());
-});
-```
+1. com raiz `inventories:`
+2. sem raiz (inventarios no root, estilo AfterTemplate)
 
-Os type handlers são executados ANTES das actions YAML e bloqueiam a execução das mesmas.
+## 3.2 Campos do inventario
 
-### GuiItem Schema
+| Campo | Tipo | Default | Notas |
+|---|---|---|---|
+| `title` | string | `""` | Suporta placeholders |
+| `size` | int | `3` | 1..6 (linhas). Se vier >6, parser tenta converter de slots para linhas (`size/9`) |
+| `items` | section | vazio | Mapa `slotKey -> item` |
+| `tabs` | list | vazio | Lista de tabs |
+| `pagination` | section | null | Config de paginacao |
+| `animations` | section | vazio | Campo existe, mas loop ativo de render usa animacoes por item |
+| `persistence` | section | disabled | Persistencia de estado |
+| `shared` | bool | false | Obrigatorio `true` para `openSharedInventory` |
+| `title_update_interval` | int | 0 | Update periodico de titulo |
+| `variant-items` | section | vazio | Templates de variantes |
+
+## 3.3 Slot keys
+
+Parser de slots aceita:
+
+- unico: `"13"`
+- range: `"0-8"`
+- lista: `"0;4;8"`
+- combinado: `"0-8;18-26"`
+
+## 3.4 Item schema (`items.<slotKey>`)
+
+| Campo | Tipo | Notas |
+|---|---|---|
+| `type` | string | default = chave do item |
+| `material` | string | Ex: `DIAMOND`, `SKULL_ITEM`, `item:filler`, `head:self` |
+| `data` | int | durabilidade/data (1.8.8) |
+| `amount` | int | clamped para 1..64 |
+| `name` | string | suporta placeholders |
+| `lore` | list<string> | suporta placeholders |
+| `enabled` | bool | parseado no item |
+| `enchanted` | bool | glow simples |
+| `enchantments` | map<string,int> | `Enchantment.getByName(...)` |
+| `hide-flags` | bool | adiciona `ItemFlag.values()` |
+| `custom-model-data` | int | escreve NBT `CustomModelData` |
+| `actions` | list<string> | fallback default |
+| `action` | string ou list | alias adicional concatenado |
+| `on_left_click` ... | list/string/obj | actions por click |
+| `head` | string | `self`, `player:Name`, `base64:...`, `ey...` |
+| `nbt` | map<string,string> | tags custom |
+| `duplicate` | `all` ou slot string | `all` usa marcador interno `-1` |
+| `allow-drag` | bool | libera drag no slot |
+| `drag-action` | string | action executada no drag valido |
+| `cacheable` | bool | controle explicito de cache |
+| `dynamic-placeholders` | list<string> | forca item dinamico (sem cache) |
+| `view-conditions` | list<string> | filtro de render |
+| `click-conditions` | list<string> | filtro de click |
+| `variants` | list<string> | refs para `variant-items` |
+| `variant0`, `variant1`... | section | variantes inline por prioridade |
+| `animations` | list<obj> | animacoes por item |
+
+### Nota sobre item templates em `items`
+
+`parseItems(...)` so considera como template interno (slot `-1`) chaves nao numericas que contenham `-`.
+
+Exemplo seguro:
 
 ```yaml
 items:
-  "13":                       # Slot ou range: "0-8", "10;11;12"
-    material: DIAMOND_SWORD   # Material ou referência: "item:filler"
-    amount: 1
-    data: 0                   # Durabilidade/data (para heads: 3)
-    name: "&cNome do Item"
-    lore:
-      - "&7Linha 1"
-      - "&7Linha 2"
-
-    # Enchantments (efeito glow simples)
-    enchanted: true           # Adiciona glow (DURABILITY 1)
-    
-    # Enchantments múltiplos com níveis
-    enchantments:
-      SHARPNESS: 5
-      FIRE_ASPECT: 2
-      UNBREAKING: 3
-
-    # Custom Model Data (para resource packs 1.14+)
-    custom-model-data: 100001
-
-    # Flags
-    hide-flags: true          # Esconde todos os item flags
-    
-    # Skull (player heads)
-    head: "self"              # Player que abriu
-    head: "player:Notch"      # Player específico
-    head: "base64:eyJ..."     # Textura base64
-
-    # NBT customizado
-    nbt:
-      afnbt_model: "sword_epic"
-      custom_tag: "value"
-
-    # Actions (default para qualquer click)
-    actions:
-      - "sound:CLICK"
-      - "console:give %player% diamond 1"
-      
-    # Actions por tipo de click
-    on_left_click:
-      - "message:&aClique esquerdo!"
-    on_right_click:
-      - "open_panel:outro_menu"
-    on_shift_left_click:
-      - "command:buy item"
-    on_shift_right_click:
-      - "close_panel"
-    on_middle_click:
-      - "message:&7Clique do meio"
-    on_drop:
-      - "message:&cNão pode dropar!"
-    on_number_key:
-      - "message:&eTecla numérica"
-
-    # Conditions (v1.3.0+)
-    view-conditions:          # Se falhar, item não é renderizado
-      - "permission:admin.view"
-      - "placeholder:{player_level} >= 10"
-    click-conditions:         # Se falhar, click é bloqueado
-      - "permission:admin.click"
-      - "placeholder:{player_money} >= 100"
-
-    # Dynamic placeholders (lista de placeholders que invalidam cache)
-    dynamic-placeholders:
-      - "%player_money%"
-      - "%player_level%"
-      
-    # Cache
-    cacheable: true           # false para itens dinâmicos
-    
-    # Drag
-    allow-drag: false
-    drag-action: "swap"
-
-    # Duplicação
-    duplicate: "all"          # Preenche todos slots vazios
-    duplicate: "36-44"        # Duplica para slots específicos
+  frame-template:
+    type: frame-template
+    material: PAPER
+    name: "Frame {index}"
 ```
 
-### Variants & Conditional Items (v1.3.0+)
+## 3.5 Click keys suportadas
 
-O sistema de Variants permite definir múltiplas configurações para o mesmo item/slot, selecionadas dinamicamente com base em condições.
+- `on_left_click`
+- `on_right_click`
+- `on_shift_left_click`
+- `on_shift_right_click`
+- `on_middle_click`
+- `on_double_click`
+- `on_drop`
+- `on_control_drop`
+- `on_number_key`
 
-#### 1. Inline Variants
+### Formatos aceitos em cada `on_*`
 
-Variantes definidas diretamente no item (prioridade alta).
+Lista simples:
 
 ```yaml
-items:
-  "13":
-    material: STONE
-    name: "&7Default Item"
-    
-    # Variante 0 (maior prioridade)
-    variant0:
-      material: DIAMOND
-      view-conditions:
-        - "placeholder:%player_level% >= 50"
-      
-    # Variante 1
-    variant1:
-      material: GOLD_INGOT
-      view-conditions:
-        - "placeholder:%player_level% >= 20"
+on_left_click:
+  - "message: &aOK"
+  - "sound: CLICK"
 ```
 
-#### 2. Variant Items (Templates)
-
-Definidos em uma seção separada `variant-items` e referenciados.
+Bloco condicional:
 
 ```yaml
-variant-items:
-  vip_sword:
-    material: DIAMOND_SWORD
-    name: "&bEspada VIP"
-    view-conditions:
-      - "permission:vip"
-
-items:
-  "13":
-    material: WOODEN_SWORD
-    variants:
-      - "vip_sword"  # Procura em variant-items
+on_left_click:
+  conditions:
+    - "%player_level% >= 10"
+  success:
+    - "message: &aLiberado"
+  fail:
+    - "message: &cSem nivel"
 ```
 
-### Extended Actions (v1.3.0+)
-
-Actions agora suportam lógica condicional com ramos de sucesso e falha.
-
-```yaml
-items:
-  "13":
-    material: CHEST
-    on_left_click:
-      # Condições para executar a action (Single string ou List)
-      conditions: 
-        - "%player_money% >= 100"
-      
-      # Executado se condições forem verdadeiras
-      success:
-        - "console: eco take %player% 100"
-        - "message: &aCompra realizada!"
-      
-      # Executado se condições forem falsas
-      fail:
-        - "message: &cDinheiro insuficiente!"
-        - "sound: BLOCK_ANVIL_LAND"
-    
-    # Sintaxe legada ainda funciona
-    on_right_click:
-      - "message: &7Click normal"
-```
-
-### Animation Schema
-
-```yaml
-animations:
-  - slot: 13
-    type: ITEM_CYCLE        # Tipos: ITEM_CYCLE, TITLE_CYCLE
-    interval: 10            # ticks (10 = 0.5s)
-    delay: 0                # delay inicial
-    repeat: true            # loop infinito
-
-    frames:
-      - material: DIAMOND
-        display_name: "&aFrame 1"
-      - material: EMERALD
-        display_name: "&bFrame 2"
-```
-
-### Pagination Schema
+## 3.6 Pagination
 
 ```yaml
 pagination:
-  enabled: true
-  mode: HYBRID              # NATIVE_ONLY, LAYOUT_ONLY, HYBRID
-  items_per_page: 28
-  item_slots: [10-16, 19-25, 28-34, 37-43]
-
-  controls:
-    previous_page:
-      slot: 48
-      material: ARROW
-      display_name: "&e← Anterior"
-      click_actions:
-        - "sound: CLICK"
-
-    next_page:
-      slot: 50
-      material: ARROW
-      display_name: "&ePróxima →"
-      click_actions:
-        - "sound: CLICK"
+  mode: HYBRID            # NATIVE_ONLY | LAYOUT_ONLY | HYBRID
+  layout:
+    - "xxxxxxxxx"
+    - "xOOOOOOOx"
+    - "xOOOOOOOx"
+    - "xxxN Nxxx"
+  pagination-slots: [10,11,12,13,14,15,16,19,20,21,22,23,24,25]
+  navigation-slots:
+    prev: 30
+    next: 32
+  items-per-page: 14
+  show-navigation: true
 ```
 
-### Tabs Schema
+Layout markers:
+
+- `O` = slot de conteudo
+- `N` = slot de navegacao
+
+Observacoes importantes da implementacao atual:
+
+- `createPage(...)` usa quantidade de `contentSlots` para pagina, nao o `items-per-page` diretamente.
+- botoes de navegacao podem vir de:
+- item `type: prev-page`/`previous-page`
+- item `type: next-page`
+- ou botoes default internos
+
+## 3.7 Tabs
 
 ```yaml
 tabs:
-  enabled: true
-  circular_navigation: true
+  - id: weapons
+    display-name: "&cArmas"
+    icon: DIAMOND_SWORD
+    default: true
+    items:
+      "20":
+        material: DIAMOND_SWORD
+        name: "&eEspada"
 
-  items:
-    - id: weapons
-      slot: 0
-      icon: DIAMOND_SWORD
-      display_name: "&cArmas"
-      lore:
-        - "&7Clique para ver armas"
-
-    - id: armor
-      slot: 1
-      icon: DIAMOND_CHESTPLATE
-      display_name: "&9Armaduras"
-
-# Tab-specific items
-tab_contents:
-  weapons:
-    - slot: 10
-      material: DIAMOND_SWORD
-      display_name: "&cEspada"
-
-  armor:
-    - slot: 10
-      material: DIAMOND_CHESTPLATE
-      display_name: "&9Peitoral"
+  - id: armor
+    display-name: "&9Armadura"
+    icon: DIAMOND_CHESTPLATE
+    items:
+      "20":
+        material: DIAMOND_CHESTPLATE
+        name: "&ePeitoral"
 ```
 
-### Drag Settings Schema
+Slots de icones de tab:
+
+- se existirem itens com `type: tab-icon-<tabId>`, esses slots sao usados para icones
+- senao, framework centraliza automaticamente os icones na ultima linha
+
+## 3.8 Variants
 
 ```yaml
-drag_settings:
-  enabled: true
-  allowed_slots: [10-43]    # Slots que aceitam drag
-  anti_dupe: true           # Previne duplicação
-  disallow_player_inventory_drag: true  # Bloqueia drag do inventário do player
+variant-items:
+  vip-item:
+    material: GOLD_INGOT
+    name: "&6VIP"
+    view-conditions:
+      - "%player_is_op% == true"
+
+items:
+  "13":
+    material: BARRIER
+    name: "&cBloqueado"
+    variants:
+      - "vip-item"
+
+  "15":
+    material: STONE
+    name: "&7Base"
+    variant0:
+      material: EMERALD
+      name: "&aAtivo"
+      view-conditions:
+        - "%template_level% >= 5"
 ```
 
-### Persistence Schema
+Prioridade em runtime:
+
+1. `variant0`, `variant1`, ... (inline)
+2. `variants` (refs)
+3. item base
+
+## 3.9 Persistence
 
 ```yaml
 persistence:
   enabled: true
-  save_on_close: true       # Salvar ao fechar
-  auto_save_interval: 300   # Auto-save a cada 5min (segundos)
-  lazy_load: true           # Carregar apenas quando necessário
+  auto-save: true
+  save-interval-seconds: 30
 ```
 
----
+## 4) Acoes de navegacao internas
 
-## Built-in Actions
+Acoes custom do inventory handler:
 
-O AfterCore fornece 12 action handlers prontos para uso.
+- `switch_tab: <tabId>`
+- `next_page`
+- `prev_page`
+- `open_panel: <inventoryId>` (ou `open: <inventoryId>`)
+- `previous_panel` (alias `back`)
+- `refresh`
+- `close`
 
-### Formato Geral
+Use underscore nos nomes. O parser interno de action aceita `^[a-z_]+` (nomes com hífen não são aceitos).
 
-```yaml
-click_actions:
-  - "handler_name: arguments"
-```
+## 5) Placeholders disponiveis no contexto de pagina
 
-### message
+Durante render paginado, framework injeta:
 
-Envia mensagem no chat.
+- `{page}`
+- `{nextpage}`
+- `{total_pages}`
+- `{lastpage}`
+- `{has_next_page}`
+- `{has_previous_page}`
 
-```yaml
-- "message: &aOlá, %player_name%!"
-- "message: &7Linha 1\n&7Linha 2"  # Múltiplas linhas com \n
-```
+## 6) Cache e invalidacao
 
-### actionbar
+Camadas relevantes:
 
-Mensagem na action bar.
+- `InventoryConfigManager`: cache de config
+- `ItemCache`: cache de `ItemStack` compilado
+- `PlaceholderResolver`: cache curto de placeholders resolvidos
 
-```yaml
-- "actionbar: &e+10 XP"
-```
+Invalidacao por API:
 
-### sound
+- `clearCache()`: global
+- `clearCache(inventoryId)`: inventario especifico
+- `invalidateItemCache(inventoryId)`: so itens
+- `clearPlayerCache(playerId)`: invalida so escopo do jogador (1.5.6)
 
-Toca som.
+## 7) Gotchas reais (importantes)
 
-```yaml
-- "sound: LEVEL_UP"
-- "sound: CLICK, 1.0, 1.5"  # volume, pitch
-```
-
-### resource_pack_sound
-
-Som customizado de resource pack.
-
-```yaml
-- "resource_pack_sound: custom.click"
-- "resource_pack_sound: custom.success, 0.8, 1.0"
-```
-
-### title
-
-Exibe título.
-
-```yaml
-- "title: &aWelcome! | &7Subtitle"
-- "title: &cTitle | &7Sub | 10 | 40 | 10"  # fadeIn, stay, fadeOut (ticks)
-```
-
-### teleport
-
-Teleporta player.
-
-```yaml
-- "teleport: 100 64 200"          # x y z
-- "teleport: ~5 ~0 ~-3"           # relativo
-- "teleport: world_nether 0 64 0 90 0"  # world x y z yaw pitch
-```
-
-### potion
-
-Aplica efeito de poção.
-
-```yaml
-- "potion: SPEED 60 1"        # type duration(s) amplifier
-- "potion: REGENERATION 30 0"
-```
-
-### console
-
-Executa comando como console.
-
-```yaml
-- "console: give %player% diamond 1"
-- "console: tp %player% spawn"
-```
-
-### player_command
-
-Executa comando como player (sem /).
-
-```yaml
-- "player_command: shop"
-- "player_command: warp spawn"
-```
-
-### centered_message
-
-Mensagem centralizada no chat.
-
-```yaml
-- "centered_message: &6&lWelcome to the Server!"
-```
-
-### global_message
-
-Broadcast para todos os players.
-
-```yaml
-- "global_message: &a%player% abriu um loot raro!"
-```
-
-### global_centered_message
-
-Broadcast centralizado.
-
-```yaml
-- "global_centered_message: &c&lEvento iniciado!"
-```
-
----
-
-## Navigation Actions (Inventory-Specific)
-
-Actions específicas para navegação entre painéis e paginação.
-
-### switch_tab
-
-Muda para outra tab.
-
-```yaml
-- "switch_tab:weapons"
-- "switch_tab:armor"
-```
-
-### next_page / prev_page
-
-Navega entre páginas (paginação).
-
-```yaml
-- "next_page"
-- "prev_page"
-```
-
-### open_panel
-
-Abre outro painel (preserva histórico de navegação).
-
-```yaml
-- "open_panel:shop"
-- "open:confirm_purchase"
-```
-
-### previous_panel / back
-
-Volta para o painel anterior (usa histórico de navegação).
-
-```yaml
-- "previous_panel"
-- "back"
-```
-
-### refresh
-
-Atualiza o inventário atual.
-
-```yaml
-- "refresh"
-```
-
-### close
-
-Fecha inventário.
-
-```yaml
-- "close"
-```
-
----
-
-## Placeholders
-
-### Built-in Placeholders
-
-Placeholders fornecidos automaticamente:
-
-- `%player_name%` - Nome do player
-- `%player_uuid%` - UUID do player
-- `%current_page%` - Página atual (paginação)
-- `%total_pages%` - Total de páginas
-- `%tab_name%` - Nome da tab atual
-
-### Custom Placeholders
-
-Adicionar via Context:
-
-```java
-InventoryContext ctx = InventoryContext.builder(player)
-    .withPlaceholder("player_level", String.valueOf(player.getLevel()))
-    .withPlaceholder("player_money", String.format("%.2f", economy.getBalance(player)))
-    .build();
-```
-
-### PlaceholderAPI Integration
-
-Se PlaceholderAPI estiver instalado, todos os placeholders são suportados:
-
-```yaml
-display_name: "&a%player_name%"
-lore:
-  - "&7Level: &e%level%"
-  - "&7Health: &c%health%/20"
-```
-
-**Nota**: PlaceholderAPI roda na main thread. Evite usar em ações async.
-
-### Inventory Title Placeholders (v1.5.4+)
-
-Título do inventário suporta placeholders dinâmicos (atualizados automaticamente na paginação):
-
-- `{page}` - Página atual
-- `{lastpage}` / `{total_pages}` - Última página / Total de páginas
-- `{nextpage}` - Próxima página (número)
-- `{prevpage}` - Página anterior (número)
-- `{has_next_page}` - "true" se houver próxima página
-- `{has_previous_page}` - "true" se houver página anterior
-
-Exemplo:
-```yaml
-title: "&8Menu &7({page}/{lastpage})"
-```
-
-### Per-Item Context Placeholders (v1.5.4+)
-
-Em listas e loops (como `animation-list` ou `frames`), cada item pode ter placeholders exclusivos baseados no contexto de geração:
-
-- `{index}` - Índice do item na lista
-- `{alias}` - Nome/Alias do item
-- `{<key>}` - Qualquer chave passada pelo `ContentProvider`
-
-Estes placeholders são processados *antes* do cache, permitindo itens únicos mas performáticos.
-
-
----
-
-## Error Handling
-
-### CoreResult Pattern
-
-O framework usa `CoreResult<T>` para error handling previsível:
-
-```java
-import com.afterlands.core.result.CoreResult;
-import com.afterlands.core.result.CoreErrorCode;
-
-// Criar resultados
-CoreResult<InventoryState> result = CoreResult.ok(state);
-CoreResult<InventoryState> error = CoreResult.err(CoreErrorCode.NOT_FOUND, "Inventory not found");
-
-// Pattern matching (Java 21)
-return switch (result) {
-    case CoreResult.Ok(var state) -> processState(state);
-    case CoreResult.Err(var error) -> handleError(error);
-};
-
-// Functional operations
-InventoryState state = result
-    .map(s -> modifyState(s))
-    .recover(err -> DEFAULT_STATE)
-    .orElse(FALLBACK_STATE);
-
-// Side effects
-result.ifOk(state -> cache.put(playerId, state));
-result.ifErr(error -> logger.warning(error.message()));
-```
-
-### Error Codes
-
-```java
-public enum CoreErrorCode {
-    DEPENDENCY_MISSING,     // ProtocolLib, PlaceholderAPI, etc.
-    DB_DISABLED,            // Database desabilitado
-    DB_UNAVAILABLE,         // Database inacessível
-    TIMEOUT,                // Operação expirou
-    INVALID_CONFIG,         // Configuração inválida
-    NOT_ON_MAIN_THREAD,     // Deve rodar na main thread
-    ON_MAIN_THREAD,         // Não pode rodar na main thread
-    NOT_FOUND,              // Recurso não encontrado
-    FORBIDDEN,              // Operação não permitida
-    INVALID_ARGUMENT,       // Argumento inválido
-    INTERNAL_ERROR,         // Erro interno
-    UNKNOWN                 // Erro desconhecido
-}
-```
-
----
-
-## Performance Guidelines
-
-### Cache Optimization
-
-- Items são cached automaticamente (Caffeine)
-- Cache hit rate: 80-90% típico
-- Evite placeholders únicos desnecessários
-
-### Thread Safety
-
-- `InventoryService` métodos são thread-safe
-- PlaceholderAPI requer main thread
-- Database operations são sempre async
-
-### TPS Budget
-
-- Target: 27ms/50ms (54%) @ 500 CCU
-- Animations: <1ms overhead por inventário
-- Pagination HYBRID: 35x mais rápido que LAYOUT_ONLY
-
----
-
-## Extensibility
-
-### Custom Action Handlers
-
-```java
-ActionService actions = AfterCore.get().actions();
-
-actions.registerHandler("my_action", (player, args) -> {
-    // Handler logic
-    player.sendMessage("Custom action: " + args);
-});
-```
-
-### Custom Item Compilers
-
-```java
-// Futuro: API para custom item compilation
-```
+- Projeto e 1.8.8: use materiais 1.8 (`STAINED_GLASS_PANE`, `SKULL_ITEM`, etc.).
+- `openSharedInventory` falha se o inventario nao tiver `shared: true`.
+- `on_*_click` deve usar underscore.
+- Para placeholders contextuais em listas dinamicas, prefira `GuiItem.Builder.withPlaceholder(...)` por item.
+- Campo `animations` global existe no config, mas o loop ativo de render inicia animacoes por item (`item.animations`).
