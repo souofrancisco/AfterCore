@@ -28,6 +28,7 @@ import org.bukkit.Bukkit;
 import org.bukkit.entity.Player;
 import org.bukkit.plugin.Plugin;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 
 import java.io.File;
 import java.util.List;
@@ -59,6 +60,8 @@ public class DefaultInventoryService implements InventoryService {
     private final MessageService messageService;
     private final InventoryConfigManager configManager;
     private final InventoryStateManager stateManager;
+
+    private final boolean debug;
 
     // Phase 2: Cache + Compilation
     private final ItemCache itemCache;
@@ -94,7 +97,8 @@ public class DefaultInventoryService implements InventoryService {
             @NotNull ActionExecutor actionExecutor,
             @NotNull ConditionService conditions,
             @NotNull MessageService messageService,
-            @NotNull InventoryConfigManager configManager) {
+            @NotNull InventoryConfigManager configManager
+    ) {
         this.plugin = plugin;
         this.scheduler = scheduler;
         this.sql = sql;
@@ -104,7 +108,7 @@ public class DefaultInventoryService implements InventoryService {
         this.configManager = configManager;
 
         // Phase 2: Initialize cache + compilation pipeline
-        boolean debug = plugin.getConfig().getBoolean("debug", false);
+        this.debug = plugin.getConfig().getBoolean("debug", false);
         this.itemCache = new ItemCache(plugin.getLogger(), debug);
         this.placeholderResolver = new PlaceholderResolver(scheduler, messageService, debug);
         this.itemCompiler = new ItemCompiler(scheduler, itemCache, placeholderResolver, messageService, plugin.getLogger(), debug);
@@ -483,11 +487,13 @@ public class DefaultInventoryService implements InventoryService {
     /**
      * Obtém holder ativo de um player.
      */
-    @NotNull
+    @Nullable
     public InventoryViewHolder getActiveInventory(@NotNull UUID playerId) {
         InventoryViewHolder holder = activeInventories.get(playerId);
         if (holder == null) {
-            throw new IllegalStateException("Player has no active inventory");
+            if (debug) plugin.getLogger().info("Player " + playerId +  " has no active inventory");
+
+            return null;
         }
         return holder;
     }

@@ -1,5 +1,6 @@
 package com.afterlands.core.inventory;
 
+import com.afterlands.core.inventory.view.InventoryViewHolder;
 import org.bukkit.entity.Player;
 import org.bukkit.plugin.Plugin;
 import org.jetbrains.annotations.NotNull;
@@ -11,6 +12,7 @@ import java.util.concurrent.CompletableFuture;
 
 import com.afterlands.core.inventory.click.ClickHandler;
 import com.afterlands.core.inventory.template.ItemTemplateService;
+import org.jetbrains.annotations.Nullable;
 
 /**
  * Serviço principal de inventários do AfterCore.
@@ -120,6 +122,18 @@ public interface InventoryService {
          * @param player Jogador alvo
          */
         void closeInventory(@NotNull Player player);
+
+        /**
+         * Recupera o holder do inventário atualmente aberto por um jogador.
+         * * <p>Este método consulta o cache de inventários ativos. Caso o modo debug esteja ativado
+         * e o jogador não possua uma sessão válida, um log informativo será gerado.</p>
+         *
+         * @param playerId O {@link UUID} do jogador para o qual deseja obter o inventário.
+         * @return O {@link InventoryViewHolder} ativo, ou {@code null} caso o jogador não tenha
+         * nenhum inventário registrado no momento.
+         */
+        @Nullable
+        InventoryViewHolder getActiveInventory(@NotNull UUID playerId);
 
         /**
          * Salva o estado de um inventário no banco de dados.
