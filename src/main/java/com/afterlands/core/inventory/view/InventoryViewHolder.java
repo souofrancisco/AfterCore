@@ -37,6 +37,8 @@ import org.jetbrains.annotations.Nullable;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.stream.Collectors;
+import java.util.stream.IntStream;
 
 /**
  * Holder de um inventário aberto.
@@ -808,6 +810,34 @@ public class InventoryViewHolder implements Listener {
     }
 
     /**
+     * Sets a specific item in the content list by its slot index.
+     * @param slot The index in the content list.
+     * @param item The GuiItem to set.
+     */
+    public void setContentItem(int slot, @NotNull GuiItem item) {
+        IntStream.range(0, contentItems.size())
+                .filter(i -> i == slot)
+                .findFirst()
+                .ifPresent(i -> {
+                    contentItems.set(i, item);
+                    refresh();
+                });
+    }
+
+    /**
+     * Replaces an existing item in the content list based on its Item Type.
+     * @param itemType The ID of the item to be replaced.
+     * @param newItem The new GuiItem to put in its place.
+     */
+    public void setContentItemById(@NotNull String itemType, @NotNull GuiItem newItem) {
+        this.contentItems = this.contentItems.stream()
+                .map(current -> itemType.equals(current.getType()) ? newItem : current)
+                .collect(Collectors.toCollection(ArrayList::new));
+
+        refresh();
+    }
+
+    /**
      * Re-renderiza um slot específico.
      *
      * @param slot Índice do slot
@@ -833,6 +863,12 @@ public class InventoryViewHolder implements Listener {
     }
 
     // ========== Pagination Methods ==========
+
+    /**
+     * Sets a specific item in the content list by its slot index.
+     * * @param slot The index in the content list.
+     * @param item The GuiItem to set.
+     */
 
     /**
      * Define items de conteúdo para paginação.
