@@ -45,6 +45,8 @@ import java.util.stream.Collectors;
 public class InventoryConfigManager {
 
     private final Plugin plugin;
+    private final boolean debug;
+
     private final ConfigService configService;
     private final File inventoriesFile;
     private FileConfiguration inventoriesConfig;
@@ -57,6 +59,7 @@ public class InventoryConfigManager {
 
     public InventoryConfigManager(@NotNull Plugin plugin, @NotNull ConfigService configService) {
         this.plugin = plugin;
+        this.debug = plugin.getConfig().getBoolean("debug", false);
         this.configService = configService;
         this.inventoriesFile = new File(plugin.getDataFolder(), "inventories.yml");
         this.defaultItems = new HashMap<>();
@@ -300,50 +303,33 @@ public class InventoryConfigManager {
                 titleUpdateInterval, metadata, variantItems);
     }
 
-    /**
-     * Parse de itens.
-     */
     @NotNull
     private List<GuiItem> parseItems(@Nullable ConfigurationSection section) {
-        if (section == null) {
-            return List.of();
-        }
+        if (section == null) return List.of();
 
         List<GuiItem> items = new ArrayList<>();
 
         for (String slotKey : section.getKeys(false)) {
             ConfigurationSection itemSection = section.getConfigurationSection(slotKey);
-            if (itemSection == null) {
-                continue;
-            }
+            if (itemSection == null) continue;
 
-            // Template items (non-numeric keys like "animation-item", "placement-item",
-            // etc.)
-            // are parsed with slot=-1 so they're available for template lookup
-            boolean isTemplateItem = slotKey.contains("-") && !slotKey.matches("^\\d+(-\\d+)?$");
-            if (isTemplateItem) {
-                // Parse as template item with slot=-1 (not rendered, only for lookup)
-                GuiItem item = parseGuiItem(slotKey, -1, itemSection);
-                items.add(item);
-                plugin.getLogger().fine("Parsed template item: " + slotKey + " with type: " + item.getType());
-                continue;
-            }
-
-            // Parse slots (pode ser range: "0-8", lista: "0;4;8", ou único: "13")
             List<Integer> slots;
             try {
                 slots = parseSlotRange(slotKey);
             } catch (NumberFormatException e) {
-                plugin.getLogger().fine("Skipping non-numeric item key: " + slotKey);
-                continue;
+                slots = List.of(-1);
             }
 
             for (int slot : slots) {
                 GuiItem item = parseGuiItem(slotKey, slot, itemSection);
                 items.add(item);
+
+                if (debug) {
+                    String label = (slot == -1) ? "[Template]" : "[Slot " + slot + "]";
+                    plugin.getLogger().info(label + " Registered: " + slotKey);
+                }
             }
         }
-
         return items;
     }
 
@@ -360,11 +346,18 @@ public class InventoryConfigManager {
      * <li>"0-8;36-44" → [0-8, 36-44]</li>
      * </ul>
      */
+    /**
+     * Parse de slot range.
+     * * @param slotKey A chave do slot (ex: "11", "0-8", "p1_head_chosen")
+     * @return Lista de slots
+     * @throws NumberFormatException Se a chave não for um padrão numérico (identificando um template)
+     */
     @NotNull
-    private List<Integer> parseSlotRange(@NotNull String slotKey) {
+    private List<Integer> parseSlotRange(@NotNull String slotKey) throws NumberFormatException {
         List<Integer> slots = new ArrayList<>();
 
         for (String part : slotKey.split(";")) {
+            part = part.trim();
             if (part.contains("-")) {
                 String[] range = part.split("-");
                 int start = Integer.parseInt(range[0].trim());
@@ -373,12 +366,7 @@ public class InventoryConfigManager {
                     slots.add(i);
                 }
             } else {
-                try {
-                    slots.add(Integer.parseInt(part.trim()));
-                } catch (NumberFormatException e) {
-                    // Pode ser keyword como "top", "bottom", etc.
-                    // Implementação futura
-                }
+                slots.add(Integer.parseInt(part));
             }
         }
 

@@ -7,6 +7,7 @@ import com.afterlands.core.actions.dialect.ActionDialect;
 import com.afterlands.core.actions.dialect.MotionActionDialect;
 import com.afterlands.core.actions.dialect.SimpleKvActionDialect;
 import com.afterlands.core.conditions.ConditionService;
+import org.bukkit.Bukkit;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -77,7 +78,12 @@ public final class DefaultActionService implements ActionService {
 
     @Override
     public void registerHandler(@NotNull String actionTypeKey, @NotNull ActionHandler handler) {
-        handlers.put(actionTypeKey.toLowerCase(Locale.ROOT), handler);
+        String key = actionTypeKey.toLowerCase(Locale.ROOT);
+        handlers.put(key, handler);
+
+        if (debug) {
+            Bukkit.getLogger().info("[ActionService] Successfully registered action handler: " + key);
+        }
     }
 
     @Override

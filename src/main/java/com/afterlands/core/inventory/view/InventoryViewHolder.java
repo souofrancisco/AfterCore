@@ -37,6 +37,8 @@ import org.jetbrains.annotations.Nullable;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.stream.Collectors;
+import java.util.stream.IntStream;
 
 /**
  * Holder de um inventário aberto.
@@ -398,13 +400,13 @@ public class InventoryViewHolder implements Listener {
 
             // DEBUG: Log each item
             if (debug) {
-                plugin.getLogger().info("[ViewHolder] DEBUG: Item at slot " + rawItem.getSlot()
-                        + " - type=" + guiItem.getType()
-                        + ", material=" + guiItem.getMaterial()
-                        + ", actions=" + guiItem.getActions().size()
-                        + ", hasClickHandlers=" + guiItem.hasClickHandlers()
-                        + ", duplicate=" + (dupSlots.isEmpty() ? "none" : (dupSlots.get(0) == -1 ? "all" : dupSlots))
-                        + ", variant=" + (guiItem != rawItem));
+                        plugin.getLogger().info("[ViewHolder] DEBUG: Item at slot " + rawItem.getSlot()
+                                + " - type=" + guiItem.getType()
+                                + ", material=" + guiItem.getMaterial()
+                                + ", actions=" + guiItem.getActions().size()
+                                + ", hasClickHandlers=" + guiItem.hasClickHandlers()
+                                + ", duplicate=" + (dupSlots.isEmpty() ? "none" : (dupSlots.get(0) == -1 ? "all" : dupSlots))
+                                + ", variant=" + (guiItem != rawItem));
             }
         }
 
@@ -808,12 +810,53 @@ public class InventoryViewHolder implements Listener {
     }
 
     /**
-     * Re-renderiza um slot específico.
+     * Sets a specific item in the content list by its slot index.
+     * @param slot The index in the content list.
+     * @param item The GuiItem to set.
+     */
+    public void setContentItem(int slot, @NotNull GuiItem item) {
+        IntStream.range(0, contentItems.size())
+                .filter(i -> i == slot)
+                .findFirst()
+                .ifPresent(i -> {
+                    contentItems.set(i, item);
+                    updateSlot(slot);
+                });
+    }
+
+    /**
+     * Procura um item na lista de conteúdo pelo seu ID (Type).
+     * @param itemType O ID/Tipo do item definido no YAML.
+     * @return Um Optional contendo o GuiItem se encontrado, ou vazio caso contrário.
+     */
+    @NotNull
+    public Optional<GuiItem> getContentItem(@NotNull String itemType) {
+        return contentItems.stream()
+                .filter(item -> itemType.equals(item.getType()))
+                .findFirst();
+    }
+
+    /**
+     * Re-renderiza um slot específico sem reconstruir o inventário todo.
      *
      * @param slot Índice do slot
      */
     public void updateSlot(int slot) {
-        // TODO: Implementação completa
+        if (slot < 0 || slot >= inventory.getSize()) return;
+
+        GuiItem guiItem = contentItems.stream()
+                .filter(i -> i.getSlot() == slot)
+                .findFirst()
+                .orElse(null);
+
+        if (guiItem == null) return;
+
+        itemCompiler.compile(guiItem, player, context).thenAccept(stack -> {
+            scheduler.runSync(() -> {
+                inventory.setItem(slot, stack);
+                slotToGuiItem.put(slot, guiItem);
+            });
+        });
     }
 
     /**
@@ -833,6 +876,12 @@ public class InventoryViewHolder implements Listener {
     }
 
     // ========== Pagination Methods ==========
+
+    /**
+     * Sets a specific item in the content list by its slot index.
+     * * @param slot The index in the content list.
+     * @param item The GuiItem to set.
+     */
 
     /**
      * Define items de conteúdo para paginação.
